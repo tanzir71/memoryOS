@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:path_provider/path_provider.dart';
 import '../models/memory_node.dart';
+import '../services/capture_interval_policy.dart';
 import '../services/database_service.dart';
 import '../services/insight_aggregator.dart';
 import '../theme/app_theme.dart';
 
 class SummaryPage extends StatefulWidget {
-  const SummaryPage({super.key});
+  const SummaryPage({super.key, this.isActive = true});
+
+  final bool isActive;
 
   @override
   State<SummaryPage> createState() => _SummaryPageState();
@@ -22,14 +25,39 @@ class _SummaryPageState extends State<SummaryPage> {
   List<MemoryNode> _nodes = [];
   bool _isLoading = true;
   Timer? _refreshTimer;
+  StreamSubscription<void>? _databaseChangesSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadNodes();
-    // Periodically refresh data dynamically from SQLite in real-time
-    _refreshTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
-      if (mounted) {
+    _databaseChangesSubscription = DatabaseService.instance.changes.listen((_) {
+      if (mounted && widget.isActive) {
+        _loadNodes();
+      }
+    });
+    _syncRefreshTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant SummaryPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isActive && widget.isActive) {
+      _loadNodes();
+    }
+    _syncRefreshTimer();
+  }
+
+  void _syncRefreshTimer() {
+    if (!widget.isActive) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      return;
+    }
+    if (_refreshTimer != null) return;
+
+    _refreshTimer = Timer.periodic(uiRefreshInterval, (timer) {
+      if (mounted && widget.isActive) {
         _loadNodes();
       }
     });
@@ -38,6 +66,7 @@ class _SummaryPageState extends State<SummaryPage> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _databaseChangesSubscription?.cancel();
     super.dispose();
   }
 

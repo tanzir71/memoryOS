@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:flutter_background/flutter_background.dart';
 import '../models/memory_node.dart';
+import 'capture_interval_policy.dart';
 import 'database_service.dart';
 
 class CaptureService {
@@ -42,14 +43,18 @@ class CaptureService {
   // Clipboard reading state
   String _lastClipboardContent = '';
   Timer? _clipboardTimer;
+  final AdaptiveIntervalBackoff _clipboardBackoff = AdaptiveIntervalBackoff(
+    initialInterval: clipboardScanInterval,
+    maxInterval: clipboardScanMaxInterval,
+  );
 
-  // Active passive scans logs triggers
-  Timer? _notificationTimer;
   Timer? _photoTimer;
+  final AdaptiveIntervalBackoff _photoBackoff = AdaptiveIntervalBackoff(
+    initialInterval: screenshotScanInterval,
+    maxInterval: screenshotScanMaxInterval,
+  );
   final Set<String> _scannedScreenshotPaths = {};
   bool _isFirstPhotoScan = true;
-  Timer? _simulationTimer;
-  int _simLogIndex = 0;
 
   // Recording state
   bool _isRecording = false;
@@ -82,11 +87,12 @@ class CaptureService {
 
     _isInitialized = true;
 
-    // Start active background loops
-    _startClipboardMonitoring();
-    _startNotificationMonitoring();
-    _startPhotoMonitoring();
-    _startLoggingSimulation();
+    if (isSourceEnabled('reading')) {
+      _startClipboardMonitoring();
+    }
+    if (isSourceEnabled('photo')) {
+      _startPhotoMonitoring();
+    }
 
     _log("SYSTEM: Loaded persisted streams configuration.");
 
@@ -96,27 +102,28 @@ class CaptureService {
 
   // Self-managing background service activation based on active toggles
   Future<void> _updateBackgroundServiceState() async {
-    final anyPassiveEnabled =
-        sourceToggles['reading'] == true ||
-        sourceToggles['notification'] == true ||
+    final anyPersistentCollectorEnabled =
         sourceToggles['location'] == true ||
-        sourceToggles['calendar'] == true ||
         sourceToggles['bluetooth'] == true ||
         sourceToggles['photo'] == true;
 
-    if (anyPassiveEnabled) {
+    if (anyPersistentCollectorEnabled) {
       if (!_globalBackgroundEnabled) {
         _log(
-          "BACKGROUND: Toggled passive stream detected. Starting persistent background service...",
+          "BACKGROUND: Native passive collector enabled. Starting persistent background service...",
         );
         await _enableBackgroundExecution();
+      } else if (Platform.isAndroid) {
+        await _setNativePersistence(true);
       }
     } else {
       if (_globalBackgroundEnabled) {
         _log(
-          "BACKGROUND: No passive streams active. Stopping background service...",
+          "BACKGROUND: No native passive collectors active. Stopping persistent background service...",
         );
         await _disableBackgroundExecution();
+      } else if (Platform.isAndroid) {
+        await _setNativePersistence(false);
       }
     }
   }
@@ -138,12 +145,6 @@ class CaptureService {
       } else {
         _clipboardTimer?.cancel();
       }
-    } else if (source == 'notification') {
-      if (isEnabled) {
-        _startNotificationMonitoring();
-      } else {
-        _notificationTimer?.cancel();
-      }
     } else if (source == 'photo') {
       if (isEnabled) {
         _startPhotoMonitoring();
@@ -152,12 +153,13 @@ class CaptureService {
       }
     }
 
-    // Automatically trigger state update asynchronously
-    _updateBackgroundServiceState();
+    unawaited(_applySourceToggleChange());
+  }
 
-    // Explicitly update native persistence layer and screenshot observers with currently toggled options
+  Future<void> _applySourceToggleChange() async {
+    await _updateBackgroundServiceState();
     if (Platform.isAndroid) {
-      _setNativePersistence(_globalBackgroundEnabled);
+      await _setNativePersistence(_globalBackgroundEnabled);
     }
   }
 
@@ -458,47 +460,64 @@ class CaptureService {
       return;
     }
     _isFirstPhotoScan = true;
+    _photoBackoff.recordCapture();
+    _schedulePhotoScan();
+  }
 
-    _photoTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
-      if (!isSourceEnabled('photo')) return;
+  void _schedulePhotoScan() {
+    if (Platform.isAndroid || !isSourceEnabled('photo')) return;
+    _photoTimer?.cancel();
+    _photoTimer = Timer(_photoBackoff.currentInterval, () async {
+      final captured = await _scanForNewScreenshots();
+      if (captured) {
+        _photoBackoff.recordCapture();
+      } else {
+        _photoBackoff.recordNoChange();
+      }
+      _schedulePhotoScan();
+    });
+  }
 
-      try {
-        final List<String> pathsToScan = [
-          '/storage/emulated/0/DCIM/Screenshots',
-          '/storage/emulated/0/Pictures/Screenshots',
-        ];
+  Future<bool> _scanForNewScreenshots() async {
+    if (!isSourceEnabled('photo')) return false;
 
-        final List<File> newScreenshots = [];
+    try {
+      final List<String> pathsToScan = [
+        '/storage/emulated/0/DCIM/Screenshots',
+        '/storage/emulated/0/Pictures/Screenshots',
+      ];
 
-        for (final path in pathsToScan) {
-          final dir = Directory(path);
-          if (await dir.exists()) {
-            final files = dir.listSync().whereType<File>().toList();
-            for (final file in files) {
-              final filePath = file.path;
-              if (filePath.toLowerCase().endsWith('.png') ||
-                  filePath.toLowerCase().endsWith('.jpg') ||
-                  filePath.toLowerCase().endsWith('.jpeg')) {
-                if (!_scannedScreenshotPaths.contains(filePath)) {
-                  if (!_isFirstPhotoScan) {
-                    newScreenshots.add(file);
-                  }
-                  _scannedScreenshotPaths.add(filePath);
+      final List<File> newScreenshots = [];
+
+      for (final path in pathsToScan) {
+        final dir = Directory(path);
+        if (await dir.exists()) {
+          final files = dir.listSync().whereType<File>().toList();
+          for (final file in files) {
+            final filePath = file.path;
+            if (filePath.toLowerCase().endsWith('.png') ||
+                filePath.toLowerCase().endsWith('.jpg') ||
+                filePath.toLowerCase().endsWith('.jpeg')) {
+              if (!_scannedScreenshotPaths.contains(filePath)) {
+                if (!_isFirstPhotoScan) {
+                  newScreenshots.add(file);
                 }
+                _scannedScreenshotPaths.add(filePath);
               }
             }
           }
         }
-
-        _isFirstPhotoScan = false;
-
-        for (final file in newScreenshots) {
-          await _ingestScreenshot(file.path);
-        }
-      } catch (_) {
-        // Fail silently
       }
-    });
+
+      _isFirstPhotoScan = false;
+
+      for (final file in newScreenshots) {
+        await _ingestScreenshot(file.path);
+      }
+      return newScreenshots.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _ingestScreenshot(String filePath) async {
@@ -606,6 +625,7 @@ class CaptureService {
   // Clipboard scan with deduplication
   void _startClipboardMonitoring() async {
     _clipboardTimer?.cancel();
+    _clipboardBackoff.recordCapture();
 
     // Load last clipboard content from database to prevent duplicate recording
     try {
@@ -626,134 +646,78 @@ class CaptureService {
       // Fail silently
     }
 
-    _clipboardTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
-      if (!isSourceEnabled('reading')) return;
-
-      try {
-        final data = await Clipboard.getData(Clipboard.kTextPlain);
-        final text = data?.text;
-
-        if (text != null &&
-            text.isNotEmpty &&
-            text.trim() != _lastClipboardContent) {
-          final cleanText = text.trim();
-          _lastClipboardContent = cleanText;
-
-          // Verify we aren't saving extremely short strings like single numbers
-          if (cleanText.length > 10) {
-            String domain = 'Clipboard Snippet';
-
-            // Try to extract domain/source if it looks like a URL
-            if (cleanText.startsWith('http://') ||
-                cleanText.startsWith('https://')) {
-              final uri = Uri.tryParse(cleanText);
-              if (uri != null) {
-                domain = uri.host;
-              }
-            }
-
-            final node = MemoryNode(
-              timestamp: DateTime.now(),
-              title: "Saved text from clipboard",
-              content: cleanText.length > 200
-                  ? '${cleanText.substring(0, 197)}...'
-                  : cleanText,
-              source: "reading",
-              metadata: {
-                'domain': domain,
-                'fullText': cleanText,
-                'isClipboard': true,
-              },
-              trail: DatabaseService.classifyTrail(
-                "Saved text from clipboard",
-                cleanText,
-              ),
-            );
-
-            await DatabaseService.instance.insertNode(node);
-            _log(
-              "CLIPBOARD DETECTED: Logged snippet (${cleanText.length} chars). Title: '${node.title}'",
-            );
-          }
-        }
-      } catch (_) {
-        // Fail silently
-      }
-    });
+    _scheduleClipboardScan();
   }
 
-  // Active scan tracking loops (only outputs to terminal logs without inserting mock nodes)
-  void _startNotificationMonitoring() {
-    _notificationTimer?.cancel();
-    _notificationTimer = Timer.periodic(const Duration(seconds: 45), (
-      timer,
-    ) async {
-      if (!isSourceEnabled('notification')) return;
-      _log(
-        "NOTIFICATION SCANNER: Listening to incoming alerts... Safe, local sandbox active.",
-      );
-    });
-  }
-
-  // Log Simulator for other passive streams to console
-  final List<String> _simLogPool = [
-    'PRIVACY GPS: Scan complete. GPS module running in low power optimization mode.',
-    'LOCAL SYNC: Passive local database audit active. 0 conflicts.',
-    'ENCLAVE MIC: Microphone secure channel verified.',
-    'SYSTEM: Hardware encryption status verified (AES-256 local enclave).',
-    'BLUETOOTH: Scanning for paired beacons to map proximity records...',
-    'CALENDAR: Syncing device schedules. Checking for new local appointments...',
-    'OCR ENGINE: Background document analyzer idle. Awaiting media inputs.',
-    'IMAGE PARSER: Media stream active. Face blurring algorithms verified.',
-    'SYSTEM: Memory collection kernel active in sandboxed background isolate.',
-  ];
-
-  void _startLoggingSimulation() {
-    _simulationTimer?.cancel();
-    _simulationTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-      // Print logs based on active toggles
-      final activeSources = sourceToggles.entries
-          .where(
-            (e) =>
-                e.value &&
-                e.key != 'voice_note' &&
-                e.key != 'reading' &&
-                e.key != 'notification',
-          )
-          .map((e) => e.key)
-          .toList();
-
-      if (activeSources.isNotEmpty) {
-        final activeSrc = activeSources[_simLogIndex % activeSources.length];
-        _simLogIndex++;
-
-        switch (activeSrc) {
-          case 'location':
-            _log("GPS: Anonymized coordinates gathered near core cluster.");
-            break;
-          case 'bluetooth':
-            _log(
-              "BLUETOOTH: Scanned nearby devices. Proximity enclaves verified.",
-            );
-            break;
-          case 'calendar':
-            _log(
-              "CALENDAR: Device schedules synchronized. Checked for local events.",
-            );
-            break;
-          case 'photo':
-            _log(
-              "OCR ENGINE: Background document and receipt parser verified.",
-            );
-            break;
-        }
+  void _scheduleClipboardScan() {
+    if (!isSourceEnabled('reading')) return;
+    _clipboardTimer?.cancel();
+    _clipboardTimer = Timer(_clipboardBackoff.currentInterval, () async {
+      final captured = await _scanClipboard();
+      if (captured) {
+        _clipboardBackoff.recordCapture();
       } else {
-        // Heartbeat log
-        final logMsg = _simLogPool[_simLogIndex % _simLogPool.length];
-        _simLogIndex++;
-        _log(logMsg);
+        _clipboardBackoff.recordNoChange();
       }
+      _scheduleClipboardScan();
     });
+  }
+
+  Future<bool> _scanClipboard() async {
+    if (!isSourceEnabled('reading')) return false;
+
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text;
+
+      if (text != null &&
+          text.isNotEmpty &&
+          text.trim() != _lastClipboardContent) {
+        final cleanText = text.trim();
+        _lastClipboardContent = cleanText;
+
+        // Verify we aren't saving extremely short strings like single numbers
+        if (cleanText.length > 10) {
+          String domain = 'Clipboard Snippet';
+
+          // Try to extract domain/source if it looks like a URL
+          if (cleanText.startsWith('http://') ||
+              cleanText.startsWith('https://')) {
+            final uri = Uri.tryParse(cleanText);
+            if (uri != null) {
+              domain = uri.host;
+            }
+          }
+
+          final node = MemoryNode(
+            timestamp: DateTime.now(),
+            title: "Saved text from clipboard",
+            content: cleanText.length > 200
+                ? '${cleanText.substring(0, 197)}...'
+                : cleanText,
+            source: "reading",
+            metadata: {
+              'domain': domain,
+              'fullText': cleanText,
+              'isClipboard': true,
+            },
+            trail: DatabaseService.classifyTrail(
+              "Saved text from clipboard",
+              cleanText,
+            ),
+          );
+
+          await DatabaseService.instance.insertNode(node);
+          _log(
+            "CLIPBOARD DETECTED: Logged snippet (${cleanText.length} chars). Title: '${node.title}'",
+          );
+          return true;
+        }
+      }
+    } catch (_) {
+      // Fail silently
+    }
+    return false;
   }
 
   // Recording API with fault-tolerant try-catch hardware fallback
@@ -869,9 +833,7 @@ class CaptureService {
 
   void dispose() {
     _clipboardTimer?.cancel();
-    _notificationTimer?.cancel();
     _photoTimer?.cancel();
-    _simulationTimer?.cancel();
     _audioRecorder.dispose();
     _logStreamController.close();
   }

@@ -410,21 +410,15 @@ class PersistentService : Service() {
             }
             locationListener = listener
 
-            val providers = listOf(
-                LocationManager.NETWORK_PROVIDER,
-                LocationManager.GPS_PROVIDER,
-                LocationManager.PASSIVE_PROVIDER
-            ).filter { provider ->
-                try {
-                    manager.isProviderEnabled(provider)
-                } catch (e: Exception) {
-                    false
-                }
+            val passiveProviderEnabled = try {
+                manager.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)
+            } catch (e: Exception) {
+                false
             }
 
-            for (provider in providers) {
+            if (passiveProviderEnabled) {
                 manager.requestLocationUpdates(
-                    provider,
+                    LocationManager.PASSIVE_PROVIDER,
                     LOCATION_MIN_TIME_MS,
                     LOCATION_MIN_DISTANCE_METERS,
                     listener,
@@ -435,7 +429,7 @@ class PersistentService : Service() {
             recordBestAvailableLocation("startup_sample")
             scheduleLocationSampling()
 
-            Log.d(TAG, "Location collector started with providers: $providers")
+            Log.d(TAG, "Location collector started in low-power mode. Passive listener enabled: $passiveProviderEnabled")
         } catch (e: SecurityException) {
             Log.e(TAG, "Missing location permission while starting location collector: ${e.message}", e)
             stopLocationUpdates()
@@ -490,9 +484,9 @@ class PersistentService : Service() {
         }
 
         val providers = listOf(
+            LocationManager.PASSIVE_PROVIDER,
             LocationManager.NETWORK_PROVIDER,
-            LocationManager.GPS_PROVIDER,
-            LocationManager.PASSIVE_PROVIDER
+            LocationManager.GPS_PROVIDER
         )
 
         val bestLocation = (listOfNotNull(latestObservedLocation) + providers.mapNotNull { provider ->

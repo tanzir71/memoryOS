@@ -14,6 +14,12 @@ object DatabaseHelper {
     private const val DB_NAME = "memoryos.db"
     private const val TABLE_NODES = "memory_nodes"
 
+    private data class NotificationImportance(
+        val tier: String,
+        val reason: String,
+        val isPriorityEvent: Boolean
+    )
+
     @Synchronized
     fun insertNode(
         context: Context,
@@ -50,6 +56,17 @@ object DatabaseHelper {
             }
 
             if (source == "notification") {
+                val importance = classifyNotificationImportance(title, content, metadata)
+                if (!metadata.has("importanceTier")) {
+                    metadata.put("importanceTier", importance.tier)
+                    metadata.put("importanceReason", importance.reason)
+                    metadata.put("isPriorityEvent", importance.isPriorityEvent)
+                }
+                if (importance.tier == "suppress") {
+                    Log.d(TAG, "Skipping suppressed notification. Reason: ${importance.reason}. Title: $title")
+                    return
+                }
+
                 if (isMarketingNotification(title, content, metadata)) {
                     Log.d(TAG, "Skipping obvious marketing notification. Title: $title")
                     return
@@ -388,5 +405,93 @@ object DatabaseHelper {
         return haystack.contains("screenshot") ||
             haystack.contains("screen shot") ||
             haystack.contains("screen capture")
+    }
+
+    private fun classifyNotificationImportance(
+        title: String,
+        content: String,
+        metadata: JSONObject
+    ): NotificationImportance {
+        val packageName = metadata.optString("packageName", "").lowercase(Locale.US)
+        val channelId = metadata.optString("channelId", "").lowercase(Locale.US)
+        val category = metadata.optString("category", "").lowercase(Locale.US)
+        val isOngoing = metadata.optBoolean("isOngoing", false)
+        val combined = "$packageName $channelId $category ${title.lowercase(Locale.US)} ${content.lowercase(Locale.US)}"
+
+        if (isMarketingNotification(title, content, metadata)) {
+            return NotificationImportance("suppress", "Promotional notification", false)
+        }
+
+        if (isShortWindowStatusLikeNotification(packageName, channelId, "$title $content")) {
+            return NotificationImportance("low", "Device status update", false)
+        }
+
+        if (looksLikeWeather(combined)) {
+            return NotificationImportance("high", "Weather summary", true)
+        }
+
+        if (looksLikeSecurityAlert(combined)) {
+            return NotificationImportance("high", "Security or verification alert", true)
+        }
+
+        if (isMessagingPackage(packageName) || category.contains("msg")) {
+            return NotificationImportance("high", "Direct message", true)
+        }
+
+        if (looksLikeCalendarEvent(combined)) {
+            return NotificationImportance("high", "Calendar or event reminder", true)
+        }
+
+        if (isEmailPackage(packageName)) {
+            val looksHumanOrProject = Regex("""\b(project|client|meeting|review|invoice|receipt|offer|deadline|call|handoff|proposal|ready|question|follow up|follow-up)\b""")
+                .containsMatchIn(combined)
+            return NotificationImportance(
+                if (looksHumanOrProject) "medium" else "low",
+                if (looksHumanOrProject) "Email context" else "Email notification",
+                looksHumanOrProject
+            )
+        }
+
+        if (isOngoing) {
+            return NotificationImportance("low", "Ongoing background status", false)
+        }
+
+        return NotificationImportance("medium", "Unclassified notification", false)
+    }
+
+    private fun isMessagingPackage(packageName: String): Boolean {
+        return packageName.contains("whatsapp") ||
+            packageName.contains("orca") ||
+            packageName.contains("messaging") ||
+            packageName.contains("messages") ||
+            packageName.contains("slack") ||
+            packageName.contains("teams") ||
+            packageName.contains("telegram") ||
+            packageName.contains("signal") ||
+            packageName.contains("messenger") ||
+            packageName.contains("discord")
+    }
+
+    private fun isEmailPackage(packageName: String): Boolean {
+        return packageName.contains("gmail") ||
+            packageName.contains("google.android.gm") ||
+            packageName.contains("email") ||
+            packageName.contains("outlook") ||
+            packageName.contains("mail")
+    }
+
+    private fun looksLikeWeather(text: String): Boolean {
+        return Regex("""\b(weather|forecast|rain|storm|thunder|temperature|humid|humidity|wind|umbrella|heatwave|cyclone|flood|air quality|aqi)\b""")
+            .containsMatchIn(text)
+    }
+
+    private fun looksLikeSecurityAlert(text: String): Boolean {
+        return Regex("""\b(otp|one time password|verification code|security alert|login|sign-in|signin|password|2fa|two-factor|account alert)\b""")
+            .containsMatchIn(text)
+    }
+
+    private fun looksLikeCalendarEvent(text: String): Boolean {
+        return Regex("""\b(calendar|meeting|event|appointment|starts in|call at|deadline|due today|due tomorrow)\b""")
+            .containsMatchIn(text)
     }
 }

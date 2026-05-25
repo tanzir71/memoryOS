@@ -15,6 +15,8 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.memoryos.memoryos/persistent"
+    private val notificationRebindMinIntervalMs = 60_000L
+    private var lastNotificationRebindAt = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,30 +38,37 @@ class MainActivity : FlutterActivity() {
             // Ignore
         }
 
-        // Force requestRebind for NotificationListener to ensure OS reconnection
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                val cn = ComponentName(this, NotificationListener::class.java)
-                NotificationListenerService.requestRebind(cn)
-                Log.d("MainActivity", "Successfully requested NotificationListener rebind.")
-            }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Error requesting rebind: ${e.message}")
-        }
+        maybeRequestNotificationRebind("onCreate")
     }
 
     override fun onResume() {
         super.onResume()
-        
-        // Force requestRebind for NotificationListener on resume to ensure immediate reconnection
+
+        maybeRequestNotificationRebind("onResume")
+    }
+
+    private fun maybeRequestNotificationRebind(reason: String) {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                val cn = ComponentName(this, NotificationListener::class.java)
-                NotificationListenerService.requestRebind(cn)
-                Log.d("MainActivity", "onResume: Successfully requested NotificationListener rebind.")
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+
+            val sharedPref = getSharedPreferences("memoryos_prefs", Context.MODE_PRIVATE)
+            if (!sharedPref.getBoolean("toggle_notification", false)) {
+                Log.d("MainActivity", "$reason: Notification capture disabled; skipping listener rebind.")
+                return
             }
+
+            val now = System.currentTimeMillis()
+            if (now - lastNotificationRebindAt < notificationRebindMinIntervalMs) {
+                Log.d("MainActivity", "$reason: Notification listener rebind throttled.")
+                return
+            }
+
+            val cn = ComponentName(this, NotificationListener::class.java)
+            NotificationListenerService.requestRebind(cn)
+            lastNotificationRebindAt = now
+            Log.d("MainActivity", "$reason: Requested NotificationListener rebind.")
         } catch (e: Exception) {
-            Log.e("MainActivity", "onResume: Error requesting rebind: ${e.message}")
+            Log.e("MainActivity", "$reason: Error requesting rebind: ${e.message}")
         }
     }
 
@@ -108,16 +117,7 @@ class MainActivity : FlutterActivity() {
                         Log.e("MainActivity", "MethodChannel: Error managing PersistentService: ${e.message}")
                     }
 
-                    // Force requestRebind for NotificationListener when persistent settings update
-                    try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                            val cn = ComponentName(this, NotificationListener::class.java)
-                            NotificationListenerService.requestRebind(cn)
-                            Log.d("MainActivity", "MethodChannel: Requested NotificationListener rebind.")
-                        }
-                    } catch (e: Exception) {
-                        Log.e("MainActivity", "MethodChannel: Error requesting rebind: ${e.message}")
-                    }
+                    maybeRequestNotificationRebind("MethodChannel")
                     
                     result.success(null)
                 }

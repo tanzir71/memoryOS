@@ -1,17 +1,20 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../services/capture_interval_policy.dart';
 import '../services/capture_service.dart';
 import '../theme/app_theme.dart';
 
 class SourcesPage extends StatefulWidget {
-  const SourcesPage({super.key});
+  const SourcesPage({super.key, this.isActive = true});
+
+  final bool isActive;
 
   @override
   State<SourcesPage> createState() => _SourcesPageState();
 }
 
-class _SourcesPageState extends State<SourcesPage> {
+class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
   final List<String> _logs = [];
   final ScrollController _scrollController = ScrollController();
   StreamSubscription<String>? _logSubscription;
@@ -66,6 +69,7 @@ class _SourcesPageState extends State<SourcesPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Add initial logs
     _logs.addAll([
       '[${_getFormattedTime(5)}] SYSTEM: Initializing secure enclave engine...',
@@ -77,7 +81,7 @@ class _SourcesPageState extends State<SourcesPage> {
 
     // Subscribe to CaptureService real-time logStream!
     _logSubscription = CaptureService.instance.logStream.listen((log) {
-      if (mounted) {
+      if (mounted && widget.isActive) {
         setState(() {
           _logs.add(log);
           if (_logs.length > 50) {
@@ -98,24 +102,56 @@ class _SourcesPageState extends State<SourcesPage> {
       }
     });
 
-    _checkBatteryStatus();
-    _batteryCheckTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+    if (widget.isActive) {
       _checkBatteryStatus();
-    });
+    }
+    _syncBatteryCheckTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant SourcesPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isActive && widget.isActive) {
+      _checkBatteryStatus();
+    }
+    _syncBatteryCheckTimer();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && widget.isActive) {
+      _checkBatteryStatus();
+    }
+  }
+
+  void _syncBatteryCheckTimer() {
+    if (!widget.isActive) {
+      _batteryCheckTimer?.cancel();
+      _batteryCheckTimer = null;
+      return;
+    }
+    if (_batteryCheckTimer != null) return;
+
+    _batteryCheckTimer = Timer.periodic(
+      batteryOptimizationCheckInterval,
+      (timer) => _checkBatteryStatus(),
+    );
   }
 
   Future<void> _checkBatteryStatus() async {
     final ignored = await CaptureService.instance
         .isIgnoringBatteryOptimizations();
-    if (mounted && _isBatteryOptimized == ignored) {
+    final isOptimized = !ignored;
+    if (mounted && _isBatteryOptimized != isOptimized) {
       setState(() {
-        _isBatteryOptimized = !ignored;
+        _isBatteryOptimized = isOptimized;
       });
     }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _logSubscription?.cancel();
     _batteryCheckTimer?.cancel();
     _scrollController.dispose();

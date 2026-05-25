@@ -1,4 +1,5 @@
 import '../models/memory_node.dart';
+import 'insight_terms.dart';
 
 class AggregatedInsight {
   const AggregatedInsight({
@@ -16,137 +17,14 @@ class AggregatedInsight {
   final String summary;
 }
 
-const _stopWords = {
-  'the',
-  'a',
-  'an',
-  'and',
-  'or',
-  'but',
-  'to',
-  'of',
-  'in',
-  'for',
-  'with',
-  'on',
-  'at',
-  'by',
-  'from',
-  'is',
-  'was',
-  'were',
-  'are',
-  'have',
-  'has',
-  'had',
-  'this',
-  'that',
-  'these',
-  'those',
-  'read',
-  'note',
-  'recorded',
-  'completed',
-  'visited',
-  'about',
-  'issue',
-  'system',
-  'been',
-  'what',
-  'where',
-  'when',
-  'who',
-  'how',
-  'why',
-  'will',
-  'would',
-  'could',
-  'should',
-  'received',
-  'sent',
-  'shared',
-  'duration',
-  'active',
-  'session',
-  'your',
-  'then',
-  'than',
-  'them',
-  'their',
-  'there',
-  'they',
-  'just',
-  'more',
-  'some',
-  'only',
-  'other',
-  'into',
-  'over',
-  'also',
-  'after',
-  'before',
-  'each',
-  'many',
-  'very',
-  'such',
-  'much',
-  'same',
-  'both',
-  'through',
-  'under',
-  'between',
-  'during',
-  'saved',
-  'done',
-  'going',
-  'make',
-  'check',
-  'take',
-  'find',
-  'look',
-  'view',
-  'seen',
-  'show',
-  'keep',
-  'need',
-  'want',
-  'does',
-  'file',
-  'data',
-  'text',
-  'info',
-  'here',
-  'without',
-};
-
-final _wordRegex = RegExp(r'\b[A-Za-z]{3,}\b');
-
 List<String> extractFrequentInsightKeywords(
   List<MemoryNode> nodes, {
   int limit = 6,
 }) {
-  final counts = <String, int>{};
-
-  for (final node in nodes) {
-    final text = '${node.title} ${node.content}';
-    for (final match in _wordRegex.allMatches(text)) {
-      final rawWord = match.group(0)!;
-      final lower = rawWord.toLowerCase();
-      if (_stopWords.contains(lower)) continue;
-
-      final formatted = rawWord[0].toUpperCase() + rawWord.substring(1);
-      counts[formatted] = (counts[formatted] ?? 0) + 1;
-    }
-  }
-
-  final sorted = counts.entries.toList()
-    ..sort((a, b) {
-      final countCompare = b.value.compareTo(a.value);
-      if (countCompare != 0) return countCompare;
-      return a.key.compareTo(b.key);
-    });
-
-  return sorted.map((entry) => entry.key).take(limit).toList();
+  return extractInsightTerms(
+    nodes,
+    limit: limit,
+  ).map((term) => term.label).toList();
 }
 
 List<AggregatedInsight> buildAggregatedInsights(
@@ -156,16 +34,15 @@ List<AggregatedInsight> buildAggregatedInsights(
 }) {
   if (nodes.isEmpty) return [];
 
-  final keywords = selectedKeyword == 'All'
-      ? extractFrequentInsightKeywords(nodes, limit: limit)
-      : [selectedKeyword];
+  final terms = selectedKeyword == 'All'
+      ? extractInsightTerms(nodes, limit: limit)
+      : [insightTermFromLabel(selectedKeyword)];
 
   final insights = <AggregatedInsight>[];
-  for (final keyword in keywords) {
-    final matchingNodes = nodes.where((node) {
-      final haystack = '${node.title} ${node.content}'.toLowerCase();
-      return haystack.contains(keyword.toLowerCase());
-    }).toList();
+  for (final term in terms) {
+    final matchingNodes = nodes
+        .where((node) => nodeMatchesInsightTerm(node, term))
+        .toList();
 
     if (matchingNodes.isEmpty) continue;
 
@@ -177,17 +54,71 @@ List<AggregatedInsight> buildAggregatedInsights(
 
     insights.add(
       AggregatedInsight(
-        keyword: keyword,
+        keyword: term.label,
         count: matchingNodes.length,
         sources: sources,
         latestTimestamp: latest.timestamp,
-        summary:
-            '${matchingNodes.length} ${matchingNodes.length == 1 ? "memory" : "memories"} mention $keyword across ${sources.join(", ")}. Latest: ${latest.title}.',
+        summary: _buildSummary(
+          keyword: term.label,
+          matchingNodes: matchingNodes,
+          sources: sources,
+          latest: latest,
+        ),
       ),
     );
   }
 
   return insights;
+}
+
+String _buildSummary({
+  required String keyword,
+  required List<MemoryNode> matchingNodes,
+  required List<String> sources,
+  required MemoryNode latest,
+}) {
+  final relatedTerms = extractInsightTerms(matchingNodes, limit: 5)
+      .where((term) => term.normalized != normalizeInsightTerm(keyword))
+      .map((term) => term.label)
+      .take(3)
+      .toList();
+  final countLabel =
+      '${matchingNodes.length} ${matchingNodes.length == 1 ? "memory" : "memories"}';
+  final sourceLabel = sources.length == 1
+      ? 'from ${sources.single}'
+      : 'across ${_joinHuman(sources)}';
+  final buffer = StringBuffer(
+    '$countLabel about $keyword $sourceLabel. ',
+  );
+
+  final priorityNode = matchingNodes.cast<MemoryNode?>().firstWhere(
+        (node) =>
+            node != null &&
+            (node.metadata['isPriorityEvent'] == true ||
+                node.metadata['isPriorityEvent']?.toString().toLowerCase() ==
+                    'true' ||
+                node.metadata['importanceTier']?.toString().toLowerCase() ==
+                    'high'),
+        orElse: () => null,
+      );
+  if (priorityNode != null) {
+    final reason = priorityNode.metadata['importanceReason']?.toString();
+    buffer.write(
+      'Priority event${reason == null || reason.isEmpty ? "" : ": $reason"}. ',
+    );
+  }
+
+  if (relatedTerms.isNotEmpty) {
+    buffer.write('Related context: ${relatedTerms.join(", ")}. ');
+  }
+  buffer.write('Latest note: ${latest.title}.');
+  return buffer.toString();
+}
+
+String _joinHuman(List<String> values) {
+  if (values.length <= 1) return values.join();
+  if (values.length == 2) return '${values.first} and ${values.last}';
+  return '${values.take(values.length - 1).join(", ")}, and ${values.last}';
 }
 
 String _sourceLabel(String source) {

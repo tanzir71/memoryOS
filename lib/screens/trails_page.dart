@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../models/memory_node.dart';
+import '../services/capture_interval_policy.dart';
 import '../services/capture_metadata.dart';
 import '../services/database_service.dart';
 import '../theme/app_theme.dart';
 
 class TrailsPage extends StatefulWidget {
-  const TrailsPage({super.key});
+  const TrailsPage({super.key, this.isActive = true});
+
+  final bool isActive;
 
   @override
   State<TrailsPage> createState() => _TrailsPageState();
@@ -21,6 +24,7 @@ class _TrailsPageState extends State<TrailsPage> {
   bool _isLoading = true;
   bool _isThreadsLoading = true;
   Timer? _refreshTimer;
+  StreamSubscription<void>? _databaseChangesSubscription;
 
   // Search/AI Q&A Controller
   final TextEditingController _queryController = TextEditingController();
@@ -123,8 +127,33 @@ class _TrailsPageState extends State<TrailsPage> {
   void initState() {
     super.initState();
     _loadDynamicThreads();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
-      if (mounted) {
+    _databaseChangesSubscription = DatabaseService.instance.changes.listen((_) {
+      if (mounted && widget.isActive) {
+        _loadDynamicThreads(isSilent: true);
+      }
+    });
+    _syncRefreshTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant TrailsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isActive && widget.isActive) {
+      _loadDynamicThreads(isSilent: true);
+    }
+    _syncRefreshTimer();
+  }
+
+  void _syncRefreshTimer() {
+    if (!widget.isActive) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      return;
+    }
+    if (_refreshTimer != null) return;
+
+    _refreshTimer = Timer.periodic(uiRefreshInterval, (timer) {
+      if (mounted && widget.isActive) {
         _loadDynamicThreads(isSilent: true);
       }
     });
@@ -133,6 +162,7 @@ class _TrailsPageState extends State<TrailsPage> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _databaseChangesSubscription?.cancel();
     _queryController.dispose();
     super.dispose();
   }

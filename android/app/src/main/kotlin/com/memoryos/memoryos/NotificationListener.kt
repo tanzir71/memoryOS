@@ -24,6 +24,12 @@ import java.util.concurrent.ConcurrentHashMap
 class NotificationListener : NotificationListenerService() {
     private val TAG = "NotificationListener"
 
+    private data class NotificationImportance(
+        val tier: String,
+        val reason: String,
+        val isPriorityEvent: Boolean
+    )
+
     companion object {
         // High-precision concurrent map for sliding-window notification deduplication
         private val lastNotificationTimes = ConcurrentHashMap<String, Long>()
@@ -361,6 +367,19 @@ class NotificationListener : NotificationListenerService() {
             val isOngoing = (sbn.notification.flags and Notification.FLAG_ONGOING_EVENT) != 0
             val combinedText = "$title $text"
             val isShortWindowStatus = isShortWindowStatusLikeNotification(packageName, channelId, combinedText)
+            val importance = classifyNotificationImportance(
+                packageName = packageName,
+                channelId = channelId,
+                title = title,
+                content = text,
+                category = sbn.notification.category ?: "",
+                isOngoing = isOngoing
+            )
+
+            if (importance.tier == "suppress") {
+                Log.d(TAG, "Suppressed low-value notification: ${importance.reason}. Title: $title")
+                return
+            }
 
             // High-precision deduplication window to filter out duplicate/updated streams.
             // Ongoing status notifications, like charging, are keyed by their stable
@@ -402,6 +421,9 @@ class NotificationListener : NotificationListenerService() {
                 put("category", sbn.notification.category ?: "")
                 put("isNotificationListener", true)
                 put("isOngoing", isOngoing)
+                put("importanceTier", importance.tier)
+                put("importanceReason", importance.reason)
+                put("isPriorityEvent", importance.isPriorityEvent)
             }
 
             // Issue 2: Extract large icon and big picture Bitmaps safely, handling URI permissions if necessary
@@ -546,5 +568,124 @@ class NotificationListener : NotificationListenerService() {
             text.contains("work") || text.contains("office") || text.contains("meeting") || text.contains("task") -> "work"
             else -> "none"
         }
+    }
+
+    private fun classifyNotificationImportance(
+        packageName: String,
+        channelId: String,
+        title: String,
+        content: String,
+        category: String,
+        isOngoing: Boolean
+    ): NotificationImportance {
+        val packageLower = packageName.lowercase(Locale.US)
+        val channelLower = channelId.lowercase(Locale.US)
+        val combined = "$packageLower $channelLower ${category.lowercase(Locale.US)} ${title.lowercase(Locale.US)} ${content.lowercase(Locale.US)}"
+
+        if (isMarketingNotification(packageLower, channelLower, title, content)) {
+            return NotificationImportance("suppress", "Promotional notification", false)
+        }
+
+        if (isShortWindowStatusLikeNotification(packageName, channelId, "$title $content")) {
+            return NotificationImportance("low", "Device status update", false)
+        }
+
+        if (looksLikeWeather(combined)) {
+            return NotificationImportance("high", "Weather summary", true)
+        }
+
+        if (looksLikeSecurityAlert(combined)) {
+            return NotificationImportance("high", "Security or verification alert", true)
+        }
+
+        if (isMessagingPackage(packageLower) || category.lowercase(Locale.US).contains("msg")) {
+            return NotificationImportance("high", "Direct message", true)
+        }
+
+        if (looksLikeCalendarEvent(combined)) {
+            return NotificationImportance("high", "Calendar or event reminder", true)
+        }
+
+        if (isEmailPackage(packageLower)) {
+            val looksHumanOrProject = Regex("""\b(project|client|meeting|review|invoice|receipt|offer|deadline|call|handoff|proposal|ready|question|follow up|follow-up)\b""")
+                .containsMatchIn(combined)
+            return NotificationImportance(
+                if (looksHumanOrProject) "medium" else "low",
+                if (looksHumanOrProject) "Email context" else "Email notification",
+                looksHumanOrProject
+            )
+        }
+
+        if (isOngoing) {
+            return NotificationImportance("low", "Ongoing background status", false)
+        }
+
+        return NotificationImportance("medium", "Unclassified notification", false)
+    }
+
+    private fun isMarketingNotification(
+        packageName: String,
+        channelId: String,
+        title: String,
+        content: String
+    ): Boolean {
+        val haystack = "$packageName $channelId ${title.lowercase(Locale.US)} ${content.lowercase(Locale.US)}"
+        val obviousPatterns = listOf(
+            Regex("""\b\d{1,3}\s*%\s*off\b"""),
+            Regex("""\b(use|apply)\s+(code|coupon|promo)\b"""),
+            Regex("""\b(code|coupon|promo)\s+[a-z0-9]{3,}\b"""),
+            Regex("""\b(flash|mega|summer|eid|holiday|clearance)\s+sale\b"""),
+            Regex("""\bsale\s+(ends|starts|is live|now|today|tonight)\b"""),
+            Regex("""\blimited\s+time\s+(offer|deal|discount)\b"""),
+            Regex("""\bfree\s+(delivery|shipping|trial|gift)\b"""),
+            Regex("""\b(shop|order|buy|subscribe|install|claim)\s+now\b"""),
+            Regex("""\bbuy\s+\d+\s+get\s+\d+\b"""),
+            Regex("""\b(cashback|voucher|reward points|deal of the day)\b"""),
+            Regex("""\b(ad|sponsored|promoted)\b.*\b(shop|buy|install|subscribe)\b""")
+        )
+        if (obviousPatterns.any { it.containsMatchIn(haystack) }) return true
+
+        val promoChannel = Regex("""\b(promotions?|offers?|deals?|marketing|ads?|recommendations?)\b""")
+            .containsMatchIn(channelId)
+        val promoTerms = Regex("""\b(discount|coupon|voucher|sale|cashback|deal|offer|shop now|buy now)\b""")
+            .findAll(haystack)
+            .count()
+        return promoChannel && promoTerms >= 1
+    }
+
+    private fun isMessagingPackage(packageName: String): Boolean {
+        return packageName.contains("whatsapp") ||
+            packageName.contains("orca") ||
+            packageName.contains("messaging") ||
+            packageName.contains("messages") ||
+            packageName.contains("slack") ||
+            packageName.contains("teams") ||
+            packageName.contains("telegram") ||
+            packageName.contains("signal") ||
+            packageName.contains("messenger") ||
+            packageName.contains("discord")
+    }
+
+    private fun isEmailPackage(packageName: String): Boolean {
+        return packageName.contains("gmail") ||
+            packageName.contains("google.android.gm") ||
+            packageName.contains("email") ||
+            packageName.contains("outlook") ||
+            packageName.contains("mail")
+    }
+
+    private fun looksLikeWeather(text: String): Boolean {
+        return Regex("""\b(weather|forecast|rain|storm|thunder|temperature|humid|humidity|wind|umbrella|heatwave|cyclone|flood|air quality|aqi)\b""")
+            .containsMatchIn(text)
+    }
+
+    private fun looksLikeSecurityAlert(text: String): Boolean {
+        return Regex("""\b(otp|one time password|verification code|security alert|login|sign-in|signin|password|2fa|two-factor|account alert)\b""")
+            .containsMatchIn(text)
+    }
+
+    private fun looksLikeCalendarEvent(text: String): Boolean {
+        return Regex("""\b(calendar|meeting|event|appointment|starts in|call at|deadline|due today|due tomorrow)\b""")
+            .containsMatchIn(text)
     }
 }

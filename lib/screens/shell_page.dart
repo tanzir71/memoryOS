@@ -16,13 +16,6 @@ class _ShellPageState extends State<ShellPage> {
   int _currentIndex = 0;
   bool _isSyncing = false;
 
-  final List<Widget> _pages = [
-    const TimelinePage(),
-    const SummaryPage(),
-    const SourcesPage(),
-    const TrailsPage(),
-  ];
-
   void _triggerSync() {
     setState(() {
       _isSyncing = true;
@@ -102,7 +95,24 @@ class _ShellPageState extends State<ShellPage> {
       ),
       body: IndexedStack(
         index: _currentIndex,
-        children: _pages,
+        children: [
+          TimelinePage(
+            key: const PageStorageKey('timeline'),
+            isActive: _currentIndex == 0,
+          ),
+          SummaryPage(
+            key: const PageStorageKey('summary'),
+            isActive: _currentIndex == 1,
+          ),
+          SourcesPage(
+            key: const PageStorageKey('sources'),
+            isActive: _currentIndex == 2,
+          ),
+          TrailsPage(
+            key: const PageStorageKey('trails'),
+            isActive: _currentIndex == 3,
+          ),
+        ],
       ),
       // Stitch Custom Navigation Bar
       bottomNavigationBar: Container(

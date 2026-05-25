@@ -5,15 +5,20 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:intl/intl.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/memory_node.dart';
+import '../services/capture_interval_policy.dart';
 import '../services/capture_metadata.dart';
 import '../services/database_service.dart';
 import '../services/capture_service.dart';
+import '../services/health_timeline.dart';
 import '../services/location_metadata.dart';
 import '../theme/app_theme.dart';
 
 class TimelinePage extends StatefulWidget {
-  const TimelinePage({super.key});
+  const TimelinePage({super.key, this.isActive = true});
+
+  final bool isActive;
 
   @override
   State<TimelinePage> createState() => _TimelinePageState();
@@ -24,12 +29,14 @@ class _TimelinePageState extends State<TimelinePage> {
   List<MemoryNode> _nodes = [];
   bool _isLoading = true;
   int? _activeNodeId;
+  bool _showHealthOnly = false;
 
   // Recording State
   bool _isRecording = false;
   String _recordingTime = "00:00";
   Timer? _recordingTimer;
   Timer? _refreshTimer;
+  StreamSubscription<void>? _databaseChangesSubscription;
   int _secondsRecorded = 0;
   final TextEditingController _voiceTitleController = TextEditingController();
 
@@ -73,10 +80,34 @@ class _TimelinePageState extends State<TimelinePage> {
     _loadNodes();
     _checkAllPermissions();
     _requestNotificationPermissionOnStartup();
+    _databaseChangesSubscription = DatabaseService.instance.changes.listen((_) {
+      if (mounted && widget.isActive && !_isRecording) {
+        _loadNodes();
+      }
+    });
+    _syncRefreshTimer();
+  }
 
-    // Refresh timeline nodes when returning to this page
-    _refreshTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
-      if (mounted && !_isRecording) {
+  @override
+  void didUpdateWidget(covariant TimelinePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isActive && widget.isActive) {
+      _loadNodes();
+      _checkAllPermissions();
+    }
+    _syncRefreshTimer();
+  }
+
+  void _syncRefreshTimer() {
+    if (!widget.isActive) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      return;
+    }
+    if (_refreshTimer != null) return;
+
+    _refreshTimer = Timer.periodic(uiRefreshInterval, (timer) {
+      if (mounted && widget.isActive && !_isRecording) {
         _loadNodes();
         _checkAllPermissions();
       }
@@ -98,6 +129,7 @@ class _TimelinePageState extends State<TimelinePage> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _databaseChangesSubscription?.cancel();
     _recordingTimer?.cancel();
     _voiceTitleController.dispose();
     _audioPlayer?.dispose();
@@ -122,6 +154,45 @@ class _TimelinePageState extends State<TimelinePage> {
     } catch (_) {
       if (mounted) {
         setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _exportHealthReport() async {
+    final healthNodes = filterHealthTimelineEvents(_nodes);
+    if (healthNodes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No health notifications to export for this day.'),
+          backgroundColor: AppTheme.onSurfaceVariant,
+        ),
+      );
+      return;
+    }
+
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final file = File('${directory.path}/MemoryOS_Health_Report_$stamp.md');
+      await file.writeAsString(buildHealthTimelineReport(healthNodes));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Health report saved: ${file.path}'),
+            backgroundColor: AppTheme.contextGreen,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to export health report: $e'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
       }
     }
   }
@@ -1385,6 +1456,73 @@ class _TimelinePageState extends State<TimelinePage> {
     });
   }
 
+  Widget _buildHealthFilterBar(ThemeData theme, List<MemoryNode> healthNodes) {
+    final healthCount = healthNodes.length;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        border: Border.all(
+          color: AppTheme.outlineVariant.withValues(alpha: 0.7),
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          FilterChip(
+            avatar: Icon(
+              _showHealthOnly ? Icons.favorite : Icons.favorite_border,
+              size: 18,
+            ),
+            label: const Text('Health'),
+            selected: _showHealthOnly,
+            onSelected: (selected) {
+              setState(() {
+                _showHealthOnly = selected;
+              });
+            },
+            selectedColor: AppTheme.contextGreen.withValues(alpha: 0.15),
+            checkmarkColor: AppTheme.contextGreen,
+            side: BorderSide(
+              color: _showHealthOnly
+                  ? AppTheme.contextGreen
+                  : AppTheme.outlineVariant,
+            ),
+          ),
+          Chip(
+            avatar: const Icon(Icons.notifications_active, size: 16),
+            label: Text(
+              '$healthCount health ${healthCount == 1 ? 'event' : 'events'}',
+              style: theme.textTheme.labelMedium,
+            ),
+            backgroundColor: Colors.white,
+            side: BorderSide(
+              color: AppTheme.outlineVariant.withValues(alpha: 0.6),
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: healthCount == 0 ? null : _exportHealthReport,
+            icon: const Icon(Icons.download, size: 18),
+            label: const Text('Health Report'),
+            style: OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              foregroundColor: AppTheme.contextGreen,
+              side: BorderSide(
+                color: healthCount == 0
+                    ? AppTheme.outlineVariant
+                    : AppTheme.contextGreen,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1392,6 +1530,8 @@ class _TimelinePageState extends State<TimelinePage> {
       7,
       (index) => DateTime.now().subtract(Duration(days: index)),
     );
+    final healthNodes = filterHealthTimelineEvents(_nodes);
+    final visibleNodes = _showHealthOnly ? healthNodes : _nodes;
 
     return Stack(
       children: [
@@ -1454,6 +1594,7 @@ class _TimelinePageState extends State<TimelinePage> {
 
               // Setup Guide Banner
               _buildPermissionsBanner(),
+              _buildHealthFilterBar(theme, healthNodes),
 
               if (_isLoading)
                 const Center(
@@ -1462,7 +1603,7 @@ class _TimelinePageState extends State<TimelinePage> {
                     child: CircularProgressIndicator(color: AppTheme.primary),
                   ),
                 )
-              else if (_nodes.isEmpty)
+              else if (visibleNodes.isEmpty)
                 Center(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 64.0),
@@ -1475,7 +1616,9 @@ class _TimelinePageState extends State<TimelinePage> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'No passive recordings gathered for this day.',
+                          _showHealthOnly
+                              ? 'No health notifications found for this day.'
+                              : 'No passive recordings gathered for this day.',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: AppTheme.onSurfaceVariant,
                           ),
@@ -1501,7 +1644,7 @@ class _TimelinePageState extends State<TimelinePage> {
 
                     // Render Nodes
                     Column(
-                      children: _nodes
+                      children: visibleNodes
                           .map((node) => _buildTimelineItem(node))
                           .toList(),
                     ),

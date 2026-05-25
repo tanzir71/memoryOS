@@ -3,12 +3,17 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/memory_node.dart';
 import 'capture_metadata.dart';
+import 'insight_terms.dart';
 
 class DatabaseService {
   static final DatabaseService instance = DatabaseService._init();
   static Database? _database;
+  final StreamController<void> _changesController =
+      StreamController<void>.broadcast();
 
   DatabaseService._init();
+
+  Stream<void> get changes => _changesController.stream;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -155,7 +160,9 @@ class DatabaseService {
     }
 
     final updatedNode = node.copyWith(trail: trail);
-    return await db.insert('memory_nodes', updatedNode.toMap());
+    final id = await db.insert('memory_nodes', updatedNode.toMap());
+    _emitChange();
+    return id;
   }
 
   Future<int> updateNode(MemoryNode node) async {
@@ -167,12 +174,14 @@ class DatabaseService {
     final trail = node.trail == 'none' || node.trail.isEmpty
         ? classifyTrail(node.title, node.content)
         : node.trail;
-    return await db.update(
+    final count = await db.update(
       'memory_nodes',
       node.copyWith(trail: trail).toMap()..remove('id'),
       where: 'id = ?',
       whereArgs: [node.id],
     );
+    if (count > 0) _emitChange();
+    return count;
   }
 
   Future<List<MemoryNode>> fetchAllNodes() async {
@@ -234,156 +243,17 @@ class DatabaseService {
 
   Future<List<String>> getDynamicThreads() async {
     final nodes = await fetchAllNodes();
-    if (nodes.isEmpty) {
-      return [];
-    }
-
-    final stopWords = {
-      'the',
-      'a',
-      'an',
-      'and',
-      'or',
-      'but',
-      'to',
-      'of',
-      'in',
-      'for',
-      'with',
-      'on',
-      'at',
-      'by',
-      'from',
-      'is',
-      'was',
-      'were',
-      'are',
-      'have',
-      'has',
-      'had',
-      'this',
-      'that',
-      'these',
-      'those',
-      'read',
-      'note',
-      'recorded',
-      'completed',
-      'visited',
-      'about',
-      'issue',
-      'system',
-      'been',
-      'what',
-      'where',
-      'when',
-      'who',
-      'how',
-      'why',
-      'will',
-      'would',
-      'could',
-      'should',
-      'received',
-      'sent',
-      'shared',
-      'duration',
-      'active',
-      'session',
-      'your',
-      'then',
-      'than',
-      'them',
-      'their',
-      'there',
-      'they',
-      'just',
-      'more',
-      'some',
-      'only',
-      'other',
-      'into',
-      'over',
-      'also',
-      'after',
-      'before',
-      'each',
-      'many',
-      'very',
-      'such',
-      'much',
-      'same',
-      'both',
-      'through',
-      'under',
-      'between',
-      'during',
-      'saved',
-      'done',
-      'going',
-      'make',
-      'check',
-      'take',
-      'find',
-      'look',
-      'view',
-      'seen',
-      'show',
-      'keep',
-      'need',
-      'want',
-      'does',
-      'file',
-      'data',
-      'text',
-      'info',
-      'here',
-      'without',
-    };
-
-    final Map<String, int> counts = {};
-    // Extract alphanumeric words with length >= 3
-    final RegExp wordRegex = RegExp(r'\b[A-Za-z]{3,}\b');
-
-    for (final node in nodes) {
-      final combinedText = '${node.title} ${node.content}';
-      final matches = wordRegex.allMatches(combinedText);
-      for (final match in matches) {
-        final rawWord = match.group(0)!;
-        final lower = rawWord.toLowerCase();
-        if (stopWords.contains(lower)) continue;
-
-        // Standardize word title-casing to look clean and group proper nouns correctly
-        String formatted = rawWord;
-        if (rawWord[0] == rawWord[0].toUpperCase()) {
-          formatted = rawWord;
-        } else {
-          formatted = rawWord[0].toUpperCase() + rawWord.substring(1);
-        }
-
-        counts[formatted] = (counts[formatted] ?? 0) + 1;
-      }
-    }
-
-    // Sort by count descending
-    final sorted = counts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    // Gather unique top popular words (which are primarily nouns)
-    return sorted.map((e) => e.key).take(6).toList();
+    return extractInsightTerms(
+      nodes,
+      limit: 6,
+    ).map((term) => term.label).toList();
   }
 
   // Fetch nodes containing the dynamic noun keyword in their content or title
   Future<List<MemoryNode>> fetchNodesByDynamicThread(String keyword) async {
-    final db = await instance.database;
-    await purgeExpiredDeletedNodes();
-    final result = await db.query(
-      'memory_nodes',
-      where: 'title LIKE ? OR content LIKE ?',
-      whereArgs: ['%$keyword%', '%$keyword%'],
-      orderBy: 'timestamp DESC',
-    );
-    return _visibleNodes(result.map((json) => MemoryNode.fromMap(json)));
+    final term = insightTermFromLabel(keyword);
+    final nodes = await fetchAllNodes();
+    return nodes.where((node) => nodeMatchesInsightTerm(node, term)).toList();
   }
 
   Future<int> deleteNode(int id) async {
@@ -392,27 +262,37 @@ class DatabaseService {
 
   Future<int> softDeleteNode(int id) async {
     final db = await instance.database;
-    return await db.update(
+    final count = await db.update(
       'memory_nodes',
       {'deleted_at': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [id],
     );
+    if (count > 0) _emitChange();
+    return count;
   }
 
   Future<int> restoreNode(int id) async {
     final db = await instance.database;
-    return await db.update(
+    final count = await db.update(
       'memory_nodes',
       {'deleted_at': null},
       where: 'id = ?',
       whereArgs: [id],
     );
+    if (count > 0) _emitChange();
+    return count;
   }
 
   Future<int> permanentlyDeleteNode(int id) async {
     final db = await instance.database;
-    return await db.delete('memory_nodes', where: 'id = ?', whereArgs: [id]);
+    final count = await db.delete(
+      'memory_nodes',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (count > 0) _emitChange();
+    return count;
   }
 
   Future<List<MemoryNode>> fetchDeletedNodes() async {
@@ -452,6 +332,13 @@ class DatabaseService {
         metadata: node.metadata,
         title: node.title,
         content: node.content,
+      )) {
+        return false;
+      }
+
+      if (isSuppressedNotificationRecord(
+        source: node.source,
+        metadata: node.metadata,
       )) {
         return false;
       }
@@ -508,6 +395,7 @@ class DatabaseService {
   Future<void> clearDatabase() async {
     final db = await instance.database;
     await db.delete('memory_nodes');
+    _emitChange();
   }
 
   Future<void> _prepopulateData(Database db) async {
@@ -524,6 +412,12 @@ class DatabaseService {
     final exists = columns.any((column) => column['name'] == columnName);
     if (!exists) {
       await db.execute('ALTER TABLE $table ADD COLUMN $columnDefinition');
+    }
+  }
+
+  void _emitChange() {
+    if (!_changesController.isClosed) {
+      _changesController.add(null);
     }
   }
 }

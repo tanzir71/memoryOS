@@ -17,6 +17,165 @@ String? extractScreenshotFileName(Map<String, dynamic> metadata) {
   return null;
 }
 
+enum NotificationImportanceTier { high, medium, low, suppress }
+
+class NotificationImportance {
+  const NotificationImportance({
+    required this.tier,
+    required this.reason,
+    required this.isPriorityEvent,
+  });
+
+  final NotificationImportanceTier tier;
+  final String reason;
+  final bool isPriorityEvent;
+
+  String get tierName => tier.name;
+}
+
+NotificationImportance classifyNotificationImportance({
+  required String packageName,
+  required String channelId,
+  required String title,
+  required String content,
+  String category = '',
+  bool isOngoing = false,
+}) {
+  final packageLower = packageName.toLowerCase();
+  final channelLower = channelId.toLowerCase();
+  final categoryLower = category.toLowerCase();
+  final combinedLower =
+      '$packageLower $channelLower $categoryLower '
+      '${title.toLowerCase()} ${content.toLowerCase()}';
+
+  if (isMarketingNotification(
+    packageName: packageName,
+    channelId: channelId,
+    title: title,
+    content: content,
+  )) {
+    return const NotificationImportance(
+      tier: NotificationImportanceTier.suppress,
+      reason: 'Promotional notification',
+      isPriorityEvent: false,
+    );
+  }
+
+  if (_isShortWindowStatusLikeNotification(
+    packageName: packageLower,
+    channelId: channelLower,
+    text: '$title $content',
+  )) {
+    return const NotificationImportance(
+      tier: NotificationImportanceTier.low,
+      reason: 'Device status update',
+      isPriorityEvent: false,
+    );
+  }
+
+  if (_looksLikeWeather(combinedLower)) {
+    return const NotificationImportance(
+      tier: NotificationImportanceTier.high,
+      reason: 'Weather summary',
+      isPriorityEvent: true,
+    );
+  }
+
+  if (_looksLikeSecurityAlert(combinedLower)) {
+    return const NotificationImportance(
+      tier: NotificationImportanceTier.high,
+      reason: 'Security or verification alert',
+      isPriorityEvent: true,
+    );
+  }
+
+  if (_isMessagingPackage(packageLower) || categoryLower.contains('msg')) {
+    return const NotificationImportance(
+      tier: NotificationImportanceTier.high,
+      reason: 'Direct message',
+      isPriorityEvent: true,
+    );
+  }
+
+  if (_looksLikeCalendarEvent(combinedLower)) {
+    return const NotificationImportance(
+      tier: NotificationImportanceTier.high,
+      reason: 'Calendar or event reminder',
+      isPriorityEvent: true,
+    );
+  }
+
+  if (_isEmailPackage(packageLower)) {
+    final looksHumanOrProject = RegExp(
+      r'\b(project|client|meeting|review|invoice|receipt|offer|deadline|call|'
+      r'handoff|proposal|ready|question|follow up|follow-up)\b',
+    ).hasMatch(combinedLower);
+    return NotificationImportance(
+      tier: looksHumanOrProject
+          ? NotificationImportanceTier.medium
+          : NotificationImportanceTier.low,
+      reason: looksHumanOrProject ? 'Email context' : 'Email notification',
+      isPriorityEvent: looksHumanOrProject,
+    );
+  }
+
+  if (isOngoing) {
+    return const NotificationImportance(
+      tier: NotificationImportanceTier.low,
+      reason: 'Ongoing background status',
+      isPriorityEvent: false,
+    );
+  }
+
+  return const NotificationImportance(
+    tier: NotificationImportanceTier.medium,
+    reason: 'Unclassified notification',
+    isPriorityEvent: false,
+  );
+}
+
+bool _isMessagingPackage(String packageName) {
+  return packageName.contains('whatsapp') ||
+      packageName.contains('orca') ||
+      packageName.contains('messaging') ||
+      packageName.contains('messages') ||
+      packageName.contains('slack') ||
+      packageName.contains('teams') ||
+      packageName.contains('telegram') ||
+      packageName.contains('signal') ||
+      packageName.contains('messenger') ||
+      packageName.contains('discord');
+}
+
+bool _isEmailPackage(String packageName) {
+  return packageName.contains('gmail') ||
+      packageName.contains('google.android.gm') ||
+      packageName.contains('email') ||
+      packageName.contains('outlook') ||
+      packageName.contains('mail');
+}
+
+bool _looksLikeWeather(String text) {
+  return RegExp(
+    r'\b(weather|forecast|rain|storm|thunder|temperature|humid|humidity|'
+    r'wind|umbrella|heatwave|cyclone|flood|air quality|aqi)\b',
+  ).hasMatch(text);
+}
+
+bool _looksLikeSecurityAlert(String text) {
+  return RegExp(
+    r'\b(otp|one time password|verification code|security alert|login|'
+    r'sign-in|signin|password|2fa|two-factor|account alert)\b',
+  ).hasMatch(text);
+}
+
+bool _looksLikeCalendarEvent(String text) {
+  return RegExp(
+    r'\b(calendar|meeting|event|appointment|starts in|call at|deadline|'
+    r'due today|due tomorrow)\b',
+  ).hasMatch(text);
+}
+
 String buildScreenshotSummary(Map<String, dynamic> metadata) {
   return extractScreenshotFileName(metadata) ?? 'Screenshot file captured';
 }
@@ -199,6 +358,14 @@ bool isMarketingNotificationRecord({
     title: title,
     content: content,
   );
+}
+
+bool isSuppressedNotificationRecord({
+  required String source,
+  required Map<String, dynamic> metadata,
+}) {
+  if (source != 'notification') return false;
+  return metadata['importanceTier']?.toString().toLowerCase() == 'suppress';
 }
 
 String? shortWindowNotificationDedupeKey({
