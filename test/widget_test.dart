@@ -1,9 +1,18 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:memoryos/main.dart';
+import 'package:memoryos/models/memory_node.dart';
+import 'package:memoryos/screens/summary_page.dart';
+import 'package:memoryos/screens/sources_page.dart';
+import 'package:memoryos/screens/timeline_page.dart';
+import 'package:memoryos/services/app_category_registry.dart';
 import 'package:memoryos/services/capture_service.dart';
+import 'package:memoryos/services/database_service.dart';
 
 void main() {
-  testWidgets('MemoryOS Shell boots and displays secure enclave title', (WidgetTester tester) async {
+  testWidgets('MemoryOS Shell boots and displays secure enclave title', (
+    WidgetTester tester,
+  ) async {
     // Disable clipboard scanning timer for the test to avoid pending timers
     CaptureService.instance.setSourceToggle('reading', false);
 
@@ -21,5 +30,163 @@ void main() {
     expect(find.text('Timeline'), findsOneWidget);
     expect(find.text('Sources'), findsOneWidget);
     expect(find.text('Threads'), findsOneWidget);
+  });
+
+  testWidgets('timeline header uses one overflow menu on narrow screens', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final previousSourceToggles = Map<String, bool>.from(
+      CaptureService.instance.sourceToggles,
+    );
+    CaptureService.instance.sourceToggles.updateAll((_, _) => true);
+    addTearDown(() {
+      CaptureService.instance.sourceToggles
+        ..clear()
+        ..addAll(previousSourceToggles);
+    });
+
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: TimelinePage())),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Deleted'), findsNothing);
+    expect(find.byTooltip('Timeline actions'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Timeline actions'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Recover deleted'), findsOneWidget);
+    expect(find.text('Delete day memories'), findsOneWidget);
+  });
+
+  testWidgets(
+    'sources registry group pill opens editable default and custom aliases',
+    (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await DatabaseService.instance.saveAppCategoryRegistry(
+        const AppCategoryRegistry(),
+      );
+      addTearDown(() async {
+        await DatabaseService.instance.saveAppCategoryRegistry(
+          const AppCategoryRegistry(),
+        );
+      });
+
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SourcesPage(isActive: false))),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      await tester.scrollUntilVisible(
+        find.byTooltip('Edit Food registry'),
+        260,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Edit Food registry'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Edit Food registry'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Food Registry'), findsOneWidget);
+      expect(find.text('Talabat'), findsOneWidget);
+      expect(find.byTooltip('Remove Talabat'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'com.local.tiffinbox');
+      await tester.tap(find.byTooltip('Add alias'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('com.local.tiffinbox'), findsOneWidget);
+      expect(find.byTooltip('Remove com.local.tiffinbox'), findsOneWidget);
+    },
+  );
+
+  testWidgets('summary export asks for period before save location', (
+    WidgetTester tester,
+  ) async {
+    final nodes = [
+      MemoryNode(
+        timestamp: DateTime.now(),
+        title: 'Lameh proposal review',
+        content: 'Lameh proposal review with client proposal notes.',
+        source: 'notification',
+        metadata: const {'packageName': 'com.google.android.gm'},
+        trail: 'work',
+      ),
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: SummaryPage(isActive: false, initialNodes: nodes)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    await tester.scrollUntilVisible(
+      find.text('Export as Markdown'),
+      320,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Export as Markdown'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Select export period'), findsOneWidget);
+    expect(find.text('This week'), findsOneWidget);
+    expect(find.text('This month'), findsOneWidget);
+    expect(find.text('Last month'), findsOneWidget);
+    expect(find.text('Last 3 months'), findsOneWidget);
+    expect(find.text('Last 6 months'), findsOneWidget);
+    expect(find.text('Last year'), findsOneWidget);
+    expect(find.text('All time'), findsOneWidget);
+  });
+
+  testWidgets('timeline health controls are compact on narrow screens', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final nodes = [
+      MemoryNode(
+        timestamp: DateTime.now(),
+        title: 'Foodpanda',
+        content: 'Lunch arrived.',
+        source: 'notification',
+        metadata: const {'packageName': 'com.global.foodpanda.android'},
+        trail: 'health',
+      ),
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TimelinePage(isActive: false, initialNodes: nodes),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Health Report'), findsNothing);
+    expect(find.byTooltip('1 health event'), findsOneWidget);
+    expect(find.byTooltip('Health report'), findsOneWidget);
   });
 }

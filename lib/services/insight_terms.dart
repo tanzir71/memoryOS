@@ -1,4 +1,5 @@
 import '../models/memory_node.dart';
+import 'app_category_registry.dart';
 import 'capture_metadata.dart';
 
 class InsightTerm {
@@ -23,6 +24,24 @@ class InsightTerm {
   final double sourceWeight;
   final double eventWeight;
   final String category;
+}
+
+class InsightGroup {
+  const InsightGroup({
+    required this.label,
+    required this.normalized,
+    required this.category,
+    required this.score,
+    required this.count,
+    this.packageHints = const {},
+  });
+
+  final String label;
+  final String normalized;
+  final String category;
+  final double score;
+  final int count;
+  final Set<String> packageHints;
 }
 
 class _CandidateStats {
@@ -58,6 +77,38 @@ class _CandidateStats {
   }
 }
 
+class _GroupStats {
+  _GroupStats(this.label, this.category);
+
+  String label;
+  String category;
+  final Set<int> documentIndexes = {};
+  final Set<String> packageHints = {};
+  double score = 0;
+
+  void absorb({
+    required int documentIndex,
+    required double score,
+    required Iterable<String> hints,
+    required String category,
+    required String label,
+  }) {
+    documentIndexes.add(documentIndex);
+    packageHints.addAll(
+      hints
+          .map(normalizeInsightTerm)
+          .where((hint) => hint.isNotEmpty && !_isSuppressedAppLabel(hint)),
+    );
+    if (score > this.score) {
+      this.score = score;
+      this.category = category;
+      this.label = label;
+    } else {
+      this.score += score * 0.15;
+    }
+  }
+}
+
 final _urlRegex = RegExp(r'https?://[^\s]+', caseSensitive: false);
 final _tokenRegex = RegExp(r"[A-Za-z][A-Za-z0-9]*(?:[-'][A-Za-z0-9]+)?");
 
@@ -79,6 +130,7 @@ const _stopWords = {
   'the',
   'a',
   'an',
+  'can',
   'and',
   'or',
   'but',
@@ -142,6 +194,7 @@ const _stopWords = {
   'between',
   'during',
   'your',
+  'you',
   'here',
   'without',
 };
@@ -153,12 +206,16 @@ const _boilerplateWords = {
   'apps',
   'capture',
   'captured',
+  'cache',
+  'cached',
   'clipboard',
   'com',
   'completed',
   'context',
   'data',
+  'default',
   'device',
+  'directory',
   'done',
   'duration',
   'enclave',
@@ -171,11 +228,13 @@ const _boilerplateWords = {
   'memoryos',
   'net',
   'node',
+  'null',
   'notification',
   'notifications',
   'org',
   'passive',
   'package',
+  'path',
   'photo',
   'phone',
   'pixel',
@@ -193,8 +252,12 @@ const _boilerplateWords = {
   'stream',
   'system',
   'systemui',
+  'temp',
   'text',
+  'tmp',
+  'unknown',
   'update',
+  'user',
   'visited',
 };
 
@@ -239,6 +302,136 @@ const _genericVerbWords = {
   'want',
   'wants',
 };
+
+List<InsightGroup> extractInsightGroups(
+  List<MemoryNode> nodes, {
+  int limit = 6,
+}) {
+  if (nodes.isEmpty) return [];
+
+  final registry = AppCategoryRegistry.active;
+  final groups = <String, _GroupStats>{};
+
+  for (var index = 0; index < nodes.length; index += 1) {
+    final candidate = _appGroupCandidate(nodes[index], registry);
+    if (candidate == null) continue;
+
+    final normalized = normalizeInsightTerm(candidate.label);
+    if (normalized.isEmpty || _isSuppressedAppLabel(normalized)) continue;
+
+    final stats = groups.putIfAbsent(
+      normalized,
+      () => _GroupStats(candidate.label, candidate.category),
+    );
+    stats.absorb(
+      documentIndex: index,
+      score: candidate.score,
+      hints: candidate.packageHints,
+      category: candidate.category,
+      label: candidate.label,
+    );
+  }
+
+  if (groups.isEmpty) {
+    return extractInsightTerms(nodes, limit: limit)
+        .map(
+          (term) => InsightGroup(
+            label: term.label,
+            normalized: term.normalized,
+            category: 'topic',
+            score: term.score,
+            count: term.documentCount,
+            packageHints: const {},
+          ),
+        )
+        .toList();
+  }
+
+  final sorted =
+      groups.entries.map((entry) {
+        final stats = entry.value;
+        return InsightGroup(
+          label: stats.label,
+          normalized: entry.key,
+          category: stats.category,
+          score: stats.score + (stats.documentIndexes.length * 4),
+          count: stats.documentIndexes.length,
+          packageHints: stats.packageHints,
+        );
+      }).toList()..sort((a, b) {
+        final scoreCompare = b.score.compareTo(a.score);
+        if (scoreCompare != 0) return scoreCompare;
+        final countCompare = b.count.compareTo(a.count);
+        if (countCompare != 0) return countCompare;
+        return a.label.compareTo(b.label);
+      });
+
+  return sorted.take(limit).toList();
+}
+
+InsightGroup insightGroupFromLabel(String label) {
+  final registry = AppCategoryRegistry.active;
+  final normalized = normalizeInsightTerm(label);
+  final hints = _aliasesForGroupLabel(label, registry);
+  final category = _categoryForGroupLabel(label, registry);
+  return InsightGroup(
+    label: registry.displayLabelForAlias(label),
+    normalized: normalized,
+    category: category ?? 'topic',
+    score: 0,
+    count: 0,
+    packageHints: hints,
+  );
+}
+
+bool nodeMatchesInsightGroup(MemoryNode node, InsightGroup group) {
+  if (group.category == 'topic') {
+    return nodeMatchesInsightTerm(node, insightTermFromLabel(group.label));
+  }
+
+  final packageName = normalizeInsightTerm(
+    node.metadata['packageName']?.toString() ?? '',
+  );
+  final appName = normalizeInsightTerm(
+    node.metadata['appName']?.toString() ?? '',
+  );
+  final reason = normalizeInsightTerm(
+    node.metadata['importanceReason']?.toString() ?? '',
+  );
+  final title = normalizeInsightTerm(node.title);
+  final registry = AppCategoryRegistry.active;
+  final displayName = normalizeInsightTerm(
+    registry.displayNameFor(
+      packageName: node.metadata['packageName']?.toString() ?? '',
+      appName: node.metadata['appName']?.toString() ?? '',
+    ),
+  );
+
+  final directValues = {
+    appName,
+    displayName,
+  }.where((value) => value.isNotEmpty).toSet();
+  if (directValues.contains(group.normalized)) return true;
+
+  for (final hint in group.packageHints) {
+    final normalizedHint = normalizeInsightTerm(hint);
+    if (normalizedHint.isEmpty) continue;
+    if (packageName == normalizedHint ||
+        packageName.contains(normalizedHint) ||
+        appName == normalizedHint ||
+        displayName == normalizedHint) {
+      return true;
+    }
+  }
+
+  if (title.startsWith('${group.normalized} ') ||
+      title.startsWith('${group.normalized}:') ||
+      reason.contains(group.normalized)) {
+    return true;
+  }
+
+  return false;
+}
 
 List<InsightTerm> extractInsightTerms(List<MemoryNode> nodes, {int limit = 6}) {
   if (nodes.isEmpty) return [];
@@ -359,13 +552,213 @@ String normalizeInsightTerm(String value) {
 
 String _metadataText(MemoryNode node) {
   final values = <String>[];
-  for (final entry in node.metadata.entries) {
-    final value = entry.value;
+  for (final key in const [
+    'appName',
+    'importanceReason',
+    'conversationSender',
+    'conversationSnippet',
+    'registryCategory',
+  ]) {
+    final value = node.metadata[key];
     if (value is String && value.trim().isNotEmpty) {
-      values.add(value);
+      final normalized = normalizeInsightTerm(value);
+      if (normalized.isNotEmpty &&
+          !normalized
+              .split(RegExp(r'\s+'))
+              .every((part) => _boilerplateWords.contains(part))) {
+        values.add(value);
+      }
     }
   }
   return values.join(' ');
+}
+
+_AppGroupCandidate? _appGroupCandidate(
+  MemoryNode node,
+  AppCategoryRegistry registry,
+) {
+  final packageName = node.metadata['packageName']?.toString().trim() ?? '';
+  final appName = node.metadata['appName']?.toString().trim() ?? '';
+  if (packageName.isEmpty && appName.isEmpty) return null;
+
+  if (registry.isDenied(packageName: packageName, appName: appName)) {
+    return null;
+  }
+
+  final category =
+      _metadataCategory(node) ??
+      registry
+          .firstMatch(packageName: packageName, appName: appName)
+          ?.storageKey;
+  final combinedText = '$packageName $appName ${node.title} ${node.content}'
+      .toLowerCase();
+  if ((category == AppCategory.food.storageKey ||
+          category == AppCategory.grocery.storageKey) &&
+      !_foodOrGrocerySignal.hasMatch(combinedText)) {
+    return null;
+  }
+  if (category == AppCategory.fitness.storageKey &&
+      !_fitnessSignal.hasMatch(combinedText)) {
+    return null;
+  }
+
+  final label = _appLabelForNode(
+    packageName: packageName,
+    appName: appName,
+    registry: registry,
+  );
+  final normalizedLabel = normalizeInsightTerm(label);
+  if (normalizedLabel.isEmpty || _isSuppressedAppLabel(normalizedLabel)) {
+    return null;
+  }
+
+  final effectiveCategory = category ?? 'app';
+  final score =
+      _groupCategoryWeight(effectiveCategory) +
+      _groupImportanceWeight(node) +
+      (node.source == 'notification' ? 6 : 0);
+  return _AppGroupCandidate(
+    label: label,
+    category: effectiveCategory,
+    score: score,
+    packageHints: {
+      packageName,
+      appName,
+      label,
+      ..._aliasesForGroupLabel(label, registry),
+    },
+  );
+}
+
+String _appLabelForNode({
+  required String packageName,
+  required String appName,
+  required AppCategoryRegistry registry,
+}) {
+  if (appName.isNotEmpty) {
+    final label = registry.displayLabelForAlias(appName);
+    if (label.trim().isNotEmpty) return label;
+  }
+  final packageLabel = registry.displayLabelForAlias(packageName);
+  if (packageLabel.trim().isNotEmpty) return packageLabel;
+  return registry.displayNameFor(packageName: packageName, appName: appName);
+}
+
+String? _metadataCategory(MemoryNode node) {
+  final raw = node.metadata['registryCategory']?.toString().trim();
+  if (raw == null || raw.isEmpty) return null;
+  final normalized = raw.toLowerCase();
+  for (final category in AppCategory.values) {
+    if (category.storageKey == normalized) return normalized;
+  }
+  return null;
+}
+
+Set<String> _aliasesForGroupLabel(String label, AppCategoryRegistry registry) {
+  final normalizedLabel = normalizeInsightTerm(label);
+  final aliases = <String>{normalizedLabel};
+  for (final category in AppCategory.values) {
+    for (final alias in registry.aliasesFor(category)) {
+      final aliasLabel = normalizeInsightTerm(
+        registry.displayLabelForAlias(alias),
+      );
+      final normalizedAlias = normalizeInsightTerm(alias);
+      if (aliasLabel == normalizedLabel || normalizedAlias == normalizedLabel) {
+        aliases.add(alias);
+      }
+    }
+  }
+  return aliases;
+}
+
+String? _categoryForGroupLabel(String label, AppCategoryRegistry registry) {
+  final normalizedLabel = normalizeInsightTerm(label);
+  for (final category in AppCategory.values) {
+    for (final alias in registry.aliasesFor(category)) {
+      final aliasLabel = normalizeInsightTerm(
+        registry.displayLabelForAlias(alias),
+      );
+      final normalizedAlias = normalizeInsightTerm(alias);
+      if (aliasLabel == normalizedLabel || normalizedAlias == normalizedLabel) {
+        return category.storageKey;
+      }
+    }
+  }
+  return null;
+}
+
+double _groupCategoryWeight(String category) {
+  switch (category) {
+    case 'messaging':
+      return 120;
+    case 'email':
+      return 115;
+    case 'food':
+    case 'grocery':
+    case 'fitness':
+      return 100;
+    default:
+      return 70;
+  }
+}
+
+double _groupImportanceWeight(MemoryNode node) {
+  final tier = node.metadata['importanceTier']?.toString().toLowerCase();
+  if (tier == 'high') return 24;
+  if (tier == 'medium') return 8;
+  if (tier == 'low') return -4;
+  if (node.metadata['isPriorityEvent'] == true ||
+      node.metadata['isPriorityEvent']?.toString().toLowerCase() == 'true') {
+    return 14;
+  }
+  return 0;
+}
+
+bool _isSuppressedAppLabel(String normalized) {
+  return const {
+    'android',
+    'android system',
+    'system',
+    'system ui',
+    'google',
+    'google play services',
+    'battery',
+    'battery life',
+    'phone',
+    'dialer',
+    'device',
+    'user',
+    'cache',
+    'null',
+    'default',
+    'unknown',
+  }.contains(normalized);
+}
+
+final _foodOrGrocerySignal = RegExp(
+  r'\b(order|ordered|delivery|delivered|arriving|pickup|picked up|receipt|'
+  r'cart|checkout|paid|payment|rider|driver|prepared|preparing|on the way|'
+  r'grocery|groceries|meal|lunch|dinner|breakfast|restaurant)\b',
+);
+
+final _fitnessSignal = RegExp(
+  r'\b(workout|exercise|fitness|gym|steps|heart rate|run|ran|walk|walking|'
+  r'cycling|ride|sleep|activity|calories burned|active minutes|distance|km|'
+  r'miles|pace|training|session)\b',
+);
+
+class _AppGroupCandidate {
+  const _AppGroupCandidate({
+    required this.label,
+    required this.category,
+    required this.score,
+    required this.packageHints,
+  });
+
+  final String label;
+  final String category;
+  final double score;
+  final Set<String> packageHints;
 }
 
 Iterable<_ExtractedCandidate> _extractCandidates(
@@ -485,6 +878,23 @@ Iterable<_ExtractedCandidate> _extractPriorityCandidates(
   final importanceReason = node.metadata['importanceReason']?.toString() ?? '';
   final packageName = node.metadata['packageName']?.toString() ?? '';
   final titleLower = node.title.toLowerCase();
+  final metadataSender = node.metadata['conversationSender']?.toString().trim();
+  final metadataSnippet = node.metadata['conversationSnippet']
+      ?.toString()
+      .trim();
+
+  if (metadataSender != null &&
+      metadataSender.isNotEmpty &&
+      _isMeaningfulToken(metadataSender)) {
+    yield _ExtractedCandidate(
+      metadataSender,
+      1,
+      34,
+      'message_sender',
+      sourceWeight,
+      eventWeight == 0 ? 18 : eventWeight,
+    );
+  }
 
   if (_looksLikeWeatherText(lowerText) ||
       importanceReason.toLowerCase().contains('weather')) {
@@ -543,6 +953,32 @@ Iterable<_ExtractedCandidate> _extractPriorityCandidates(
         sourceWeight,
         eventWeight == 0 ? 8 : eventWeight,
       );
+    }
+  }
+
+  if (metadataSnippet != null && metadataSnippet.isNotEmpty) {
+    final snippetTokens = _tokenRegex
+        .allMatches(metadataSnippet)
+        .map((match) => match.group(0)!)
+        .where(_isMeaningfulToken)
+        .take(4)
+        .toList();
+    for (var start = 0; start < snippetTokens.length - 1; start += 1) {
+      final phrase = snippetTokens.sublist(start, start + 2);
+      if (phrase.any(
+        (token) => _genericVerbWords.contains(token.toLowerCase()),
+      )) {
+        continue;
+      }
+      yield _ExtractedCandidate(
+        _formatLabel(phrase),
+        2,
+        12,
+        'conversation_phrase',
+        sourceWeight,
+        eventWeight == 0 ? 10 : eventWeight,
+      );
+      break;
     }
   }
 }

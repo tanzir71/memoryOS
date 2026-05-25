@@ -1,18 +1,19 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
-import 'package:path_provider/path_provider.dart';
 import '../models/memory_node.dart';
 import '../services/capture_interval_policy.dart';
 import '../services/database_service.dart';
+import '../services/export_period.dart';
 import '../services/insight_aggregator.dart';
+import '../services/report_download_service.dart';
 import '../theme/app_theme.dart';
 
 class SummaryPage extends StatefulWidget {
-  const SummaryPage({super.key, this.isActive = true});
+  const SummaryPage({super.key, this.isActive = true, this.initialNodes});
 
   final bool isActive;
+  final List<MemoryNode>? initialNodes;
 
   @override
   State<SummaryPage> createState() => _SummaryPageState();
@@ -30,9 +31,17 @@ class _SummaryPageState extends State<SummaryPage> {
   @override
   void initState() {
     super.initState();
-    _loadNodes();
+    if (widget.initialNodes != null) {
+      _nodes = widget.initialNodes!;
+      _isLoading = false;
+    } else {
+      DatabaseService.instance.loadAppCategoryRegistry().then((_) {
+        if (mounted) _loadNodes();
+      });
+      _loadNodes();
+    }
     _databaseChangesSubscription = DatabaseService.instance.changes.listen((_) {
-      if (mounted && widget.isActive) {
+      if (mounted && widget.isActive && widget.initialNodes == null) {
         _loadNodes();
       }
     });
@@ -42,7 +51,15 @@ class _SummaryPageState extends State<SummaryPage> {
   @override
   void didUpdateWidget(covariant SummaryPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.isActive && widget.isActive) {
+    if (oldWidget.initialNodes != widget.initialNodes &&
+        widget.initialNodes != null) {
+      setState(() {
+        _nodes = widget.initialNodes!;
+        _isLoading = false;
+      });
+    } else if (!oldWidget.isActive &&
+        widget.isActive &&
+        widget.initialNodes == null) {
       _loadNodes();
     }
     _syncRefreshTimer();
@@ -57,7 +74,7 @@ class _SummaryPageState extends State<SummaryPage> {
     if (_refreshTimer != null) return;
 
     _refreshTimer = Timer.periodic(uiRefreshInterval, (timer) {
-      if (mounted && widget.isActive) {
+      if (mounted && widget.isActive && widget.initialNodes == null) {
         _loadNodes();
       }
     });
@@ -100,15 +117,21 @@ class _SummaryPageState extends State<SummaryPage> {
   }
 
   List<String> _insightFilters() {
-    return [
-      'All',
-      ...extractFrequentInsightKeywords(_nodesForSelectedRange(), limit: 6),
-    ];
+    return _insightFiltersForNodes(_nodesForSelectedRange());
+  }
+
+  List<String> _insightFiltersForNodes(List<MemoryNode> nodes) {
+    return ['All', ...extractFrequentInsightKeywords(nodes, limit: 6)];
   }
 
   List<Map<String, dynamic>> _getFilteredInsights() {
-    final filteredNodes = _nodesForSelectedRange();
-    final filters = _insightFilters();
+    return _filteredInsightsForNodes(_nodesForSelectedRange());
+  }
+
+  List<Map<String, dynamic>> _filteredInsightsForNodes(
+    List<MemoryNode> filteredNodes,
+  ) {
+    final filters = _insightFiltersForNodes(filteredNodes);
     final selectedKeyword = filters.contains(_selectedType)
         ? _selectedType
         : 'All';
@@ -129,60 +152,85 @@ class _SummaryPageState extends State<SummaryPage> {
     }).toList();
   }
 
+  String _buildMarkdownReport({
+    required List<Map<String, dynamic>> items,
+    required String selectedType,
+    required String periodLabel,
+  }) {
+    final buffer = StringBuffer();
+    buffer.writeln("# MemoryOS Premium Insights: $selectedType");
+    buffer.writeln(
+      "Generated on: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}",
+    );
+    buffer.writeln("Time Range: $periodLabel");
+    buffer.writeln("Verified by Local AI Model: Llama-3-Privacy");
+    buffer.writeln();
+    buffer.writeln("---");
+    buffer.writeln();
+
+    if (items.isEmpty) {
+      buffer.writeln("No memories recorded in this range.");
+    } else {
+      for (final item in items) {
+        final title = item['title'];
+        final date = item['date'];
+        final body = item['body'];
+        final tags = List<String>.from(item['tags'] ?? []);
+
+        buffer.writeln("## $title ($date)");
+        if (item['type'] == 'quote') {
+          buffer.writeln("> $body");
+        } else {
+          buffer.writeln(body);
+        }
+        if (tags.isNotEmpty) {
+          buffer.writeln();
+          buffer.writeln("**Tags:** ${tags.map((t) => "`$t`").join(', ')}");
+        }
+        buffer.writeln();
+        buffer.writeln("---");
+        buffer.writeln();
+      }
+    }
+
+    return buffer.toString();
+  }
+
   Future<void> _exportAsMarkdown() async {
     try {
-      final currentDraftItems = _getFilteredInsights();
-      final filters = _insightFilters();
-      final effectiveSelectedType = filters.contains(_selectedType)
-          ? _selectedType
-          : 'All';
-
-      final buffer = StringBuffer();
-      buffer.writeln("# MemoryOS Premium Insights: $effectiveSelectedType");
-      buffer.writeln(
-        "Generated on: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}",
+      final result = await ReportDownloadService.instance.saveMarkdownReport(
+        selectPeriod: () => showExportPeriodPicker(context),
+        suggestedName: (period) {
+          final periodNodes = period.filterNodes(_nodes);
+          final filters = _insightFiltersForNodes(periodNodes);
+          final effectiveSelectedType = filters.contains(_selectedType)
+              ? _selectedType
+              : 'All';
+          final safeType = effectiveSelectedType.replaceAll(
+            RegExp(r'[^\w]'),
+            '_',
+          );
+          final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+          return 'MemoryOS_${safeType}_${period.filenameSlug}_Summary_$stamp.md';
+        },
+        buildMarkdown: (period) {
+          final periodNodes = period.filterNodes(_nodes);
+          final filters = _insightFiltersForNodes(periodNodes);
+          final effectiveSelectedType = filters.contains(_selectedType)
+              ? _selectedType
+              : 'All';
+          return _buildMarkdownReport(
+            items: _filteredInsightsForNodes(periodNodes),
+            selectedType: effectiveSelectedType,
+            periodLabel: period.label,
+          );
+        },
       );
-      buffer.writeln("Time Range: $_selectedRange");
-      buffer.writeln("Verified by Local AI Model: Llama-3-Privacy");
-      buffer.writeln();
-      buffer.writeln("---");
-      buffer.writeln();
 
-      if (currentDraftItems.isEmpty) {
-        buffer.writeln("No memories recorded in this range.");
-      } else {
-        for (final item in currentDraftItems) {
-          final title = item['title'];
-          final date = item['date'];
-          final body = item['body'];
-          final tags = List<String>.from(item['tags'] ?? []);
-
-          buffer.writeln("## $title ($date)");
-          if (item['type'] == 'quote') {
-            buffer.writeln("> $body");
-          } else {
-            buffer.writeln(body);
-          }
-          if (tags.isNotEmpty) {
-            buffer.writeln();
-            buffer.writeln("**Tags:** ${tags.map((t) => "`$t`").join(', ')}");
-          }
-          buffer.writeln();
-          buffer.writeln("---");
-          buffer.writeln();
-        }
-      }
-
-      final directory = await getApplicationDocumentsDirectory();
-      final safeType = effectiveSelectedType.replaceAll(RegExp(r'[^\w]'), '_');
-      final file = File('${directory.path}/MemoryOS_${safeType}_Summary.md');
-
-      await file.writeAsString(buffer.toString());
-
-      if (mounted) {
+      if (mounted && result.status == ReportDownloadStatus.saved) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Markdown report saved: ${file.path}'),
+            content: Text('Markdown report saved: ${result.path}'),
             backgroundColor: AppTheme.contextGreen,
             duration: const Duration(seconds: 4),
           ),

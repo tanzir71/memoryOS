@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
-import 'package:flutter_background/flutter_background.dart';
 import '../models/memory_node.dart';
 import 'capture_interval_policy.dart';
 import 'database_service.dart';
@@ -105,7 +104,8 @@ class CaptureService {
     final anyPersistentCollectorEnabled =
         sourceToggles['location'] == true ||
         sourceToggles['bluetooth'] == true ||
-        sourceToggles['photo'] == true;
+        sourceToggles['photo'] == true ||
+        sourceToggles['notification'] == true;
 
     if (anyPersistentCollectorEnabled) {
       if (!_globalBackgroundEnabled) {
@@ -185,40 +185,19 @@ class CaptureService {
     if (source == 'background_listening') {
       try {
         if (Platform.isAndroid) {
-          // Request standard OS Post Notifications permission first
           await Permission.notification.request();
+          _globalBackgroundEnabled = true;
+          await _setNativePersistence(true);
+          _log("BACKGROUND: Native persistent listening permitted.");
 
-          final config = FlutterBackgroundAndroidConfig(
-            notificationTitle: "MemoryOS is listening",
-            notificationText:
-                "Passive offline detection is running. Tap to manage.",
-            notificationImportance: AndroidNotificationImportance.normal,
-            notificationIcon: const AndroidResource(
-              name: 'ic_launcher',
-              defType: 'mipmap',
-            ),
-          );
-          final initialized = await FlutterBackground.initialize(
-            androidConfig: config,
-          );
-          if (initialized) {
-            final success = await FlutterBackground.enableBackgroundExecution();
-            if (success) {
-              _globalBackgroundEnabled = true;
-              _log("BACKGROUND: Persistent background execution permitted.");
-              await _updateBackgroundServiceState();
-
-              // Direct guide check: trigger battery optimization exempt prompt
-              final isIgnoring = await isIgnoringBatteryOptimizations();
-              if (!isIgnoring) {
-                _log(
-                  "BACKGROUND: Battery optimization active. Exemption requested.",
-                );
-                await openBatterySettings();
-              }
-              return true;
-            }
+          final isIgnoring = await isIgnoringBatteryOptimizations();
+          if (!isIgnoring) {
+            _log(
+              "BACKGROUND: Battery optimization active. Exemption requested.",
+            );
+            await openBatterySettings();
           }
+          return true;
         }
       } catch (e) {
         _log("BACKGROUND ERROR: Failed to request background permission: $e");
@@ -304,9 +283,9 @@ class CaptureService {
     if (source == 'background_listening') {
       try {
         if (Platform.isAndroid) {
-          final hasBgPermission = await FlutterBackground.hasPermissions;
+          final notificationGranted = await Permission.notification.isGranted;
           final isIgnoring = await isIgnoringBatteryOptimizations();
-          return hasBgPermission && isIgnoring;
+          return notificationGranted && isIgnoring;
         }
       } catch (_) {}
       return true;
@@ -564,39 +543,12 @@ class CaptureService {
   Future<void> _enableBackgroundExecution() async {
     try {
       if (Platform.isAndroid) {
-        final hasPermissions = await FlutterBackground.hasPermissions;
-        if (!hasPermissions) {
-          _log("BACKGROUND: Requesting system background permissions...");
-        }
-
-        final config = FlutterBackgroundAndroidConfig(
-          notificationTitle: "MemoryOS is listening",
-          notificationText:
-              "Passive offline detection is running. Tap to manage.",
-          notificationImportance: AndroidNotificationImportance.normal,
-          notificationIcon: const AndroidResource(
-            name: 'ic_launcher',
-            defType: 'mipmap',
-          ),
+        await Permission.notification.request();
+        _globalBackgroundEnabled = true;
+        await _setNativePersistence(true);
+        _log(
+          "BACKGROUND: Native foreground listener started. Single status notification active.",
         );
-
-        final initialized = await FlutterBackground.initialize(
-          androidConfig: config,
-        );
-        if (initialized) {
-          final success = await FlutterBackground.enableBackgroundExecution();
-          _globalBackgroundEnabled = success;
-          if (success) {
-            await _setNativePersistence(true);
-          }
-          _log(
-            "BACKGROUND: Foreground service started. Transparency indicator active. Status: $success",
-          );
-        } else {
-          _log(
-            "BACKGROUND: Failed to initialize foreground service configuration.",
-          );
-        }
       } else {
         _globalBackgroundEnabled = true;
       }
@@ -608,11 +560,10 @@ class CaptureService {
   Future<void> _disableBackgroundExecution() async {
     try {
       if (Platform.isAndroid) {
-        final success = await FlutterBackground.disableBackgroundExecution();
-        _globalBackgroundEnabled = !success;
         await _setNativePersistence(false);
+        _globalBackgroundEnabled = false;
         _log(
-          "BACKGROUND: Foreground service stopped. Transparency indicator removed. Status: $success",
+          "BACKGROUND: Native foreground listener stopped. Status notification removed.",
         );
       } else {
         _globalBackgroundEnabled = false;
@@ -757,7 +708,10 @@ class CaptureService {
     }
   }
 
-  Future<MemoryNode?> stopRecording(String customTitle) async {
+  Future<MemoryNode?> stopRecording(
+    String customTitle, {
+    bool markAsHealth = false,
+  }) async {
     if (!_isRecording) return null;
 
     String? path;
@@ -820,8 +774,12 @@ class CaptureService {
         'filePath': path ?? 'enclave_buffer',
         'hasWaveform': true,
         'isFallback': _useFallbackRecording,
+        if (markAsHealth) 'voiceCategory': 'health',
+        if (markAsHealth) 'markedHealth': true,
       },
-      trail: DatabaseService.classifyTrail(finalTitle, transcript),
+      trail: markAsHealth
+          ? 'health'
+          : DatabaseService.classifyTrail(finalTitle, transcript),
     );
 
     await DatabaseService.instance.insertNode(node);

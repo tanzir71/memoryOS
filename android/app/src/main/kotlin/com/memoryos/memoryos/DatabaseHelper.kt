@@ -13,11 +13,16 @@ object DatabaseHelper {
     private const val TAG = "DatabaseHelper"
     private const val DB_NAME = "memoryos.db"
     private const val TABLE_NODES = "memory_nodes"
+    private const val REGISTRY_SETTINGS_KEY = "app_category_registry_overrides"
+    private const val DENIED_ALIASES_KEY = "deniedAliases"
 
     private data class NotificationImportance(
         val tier: String,
         val reason: String,
-        val isPriorityEvent: Boolean
+        val isPriorityEvent: Boolean,
+        val registryCategory: String? = null,
+        val conversationSender: String? = null,
+        val conversationSnippet: String? = null
     )
 
     @Synchronized
@@ -39,6 +44,13 @@ object DatabaseHelper {
             
             db = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
             ensureSchema(db)
+
+            if (source == "notification" && isUserDeniedNotification(db, metadata)) {
+                val packageName = metadata.optString("packageName", "")
+                val appName = metadata.optString("appName", "")
+                Log.d(TAG, "Skipping notification from user-denied app. package=$packageName app=$appName")
+                return
+            }
             
             // Format timestamp in local device ISO 8601 format
             val df = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", Locale.US)
@@ -61,6 +73,9 @@ object DatabaseHelper {
                     metadata.put("importanceTier", importance.tier)
                     metadata.put("importanceReason", importance.reason)
                     metadata.put("isPriorityEvent", importance.isPriorityEvent)
+                    importance.registryCategory?.let { metadata.put("registryCategory", it) }
+                    importance.conversationSender?.let { metadata.put("conversationSender", it) }
+                    importance.conversationSnippet?.let { metadata.put("conversationSnippet", it) }
                 }
                 if (importance.tier == "suppress") {
                     Log.d(TAG, "Skipping suppressed notification. Reason: ${importance.reason}. Title: $title")
@@ -180,6 +195,88 @@ object DatabaseHelper {
             cursor.close()
         }
         db.execSQL("ALTER TABLE $table ADD COLUMN $column $type")
+    }
+
+    private fun isUserDeniedNotification(
+        db: SQLiteDatabase,
+        metadata: JSONObject
+    ): Boolean {
+        val deniedAliases = loadUserDeniedAliases(db)
+        if (deniedAliases.isEmpty()) return false
+
+        val packageName = metadata.optString("packageName", "")
+        val appName = metadata.optString("appName", "")
+        return deniedAliases.any { alias ->
+            matchesRegistryAlias(
+                alias = alias,
+                packageName = packageName,
+                appName = appName
+            )
+        }
+    }
+
+    private fun loadUserDeniedAliases(db: SQLiteDatabase): List<String> {
+        val cursor = db.rawQuery(
+            "SELECT value FROM settings WHERE key = ? LIMIT 1",
+            arrayOf(REGISTRY_SETTINGS_KEY)
+        )
+        try {
+            if (!cursor.moveToFirst()) return emptyList()
+            val raw = cursor.getString(0) ?: return emptyList()
+            val array = JSONObject(raw).optJSONArray(DENIED_ALIASES_KEY)
+                ?: return emptyList()
+            return (0 until array.length())
+                .mapNotNull { index ->
+                    array.optString(index, "").trim().lowercase(Locale.US)
+                }
+                .filter { it.isNotEmpty() }
+                .distinct()
+        } catch (e: Exception) {
+            Log.d(TAG, "Unable to read user app denylist: ${e.message}")
+            return emptyList()
+        } finally {
+            cursor.close()
+        }
+    }
+
+    private fun matchesRegistryAlias(
+        alias: String,
+        packageName: String,
+        appName: String
+    ): Boolean {
+        val normalizedAlias = alias.trim().lowercase(Locale.US)
+        if (normalizedAlias.isEmpty()) return false
+
+        val packageLower = packageName.lowercase(Locale.US)
+        val appLower = appName.lowercase(Locale.US)
+        if (packageLower == normalizedAlias || appLower == normalizedAlias) {
+            return true
+        }
+        if (normalizedAlias.contains(".") && packageLower.contains(normalizedAlias)) {
+            return true
+        }
+
+        val aliasWords = registryAliasWords(normalizedAlias)
+        if (aliasWords.isEmpty()) return false
+        return containsWordPhrase(registryAliasWords(packageLower), aliasWords) ||
+            containsWordPhrase(registryAliasWords(appLower), aliasWords)
+    }
+
+    private fun registryAliasWords(value: String): List<String> {
+        return value
+            .lowercase(Locale.US)
+            .split(Regex("""[^a-z0-9]+"""))
+            .filter { it.isNotEmpty() }
+    }
+
+    private fun containsWordPhrase(words: List<String>, phrase: List<String>): Boolean {
+        if (phrase.isEmpty() || words.size < phrase.size) return false
+        for (index in 0..(words.size - phrase.size)) {
+            if (words.subList(index, index + phrase.size) == phrase) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun isRecentDuplicateNotification(
@@ -435,7 +532,20 @@ object DatabaseHelper {
         }
 
         if (isMessagingPackage(packageName) || category.contains("msg")) {
-            return NotificationImportance("high", "Direct message", true)
+            val sender = conversationSenderFromTitle(title)
+            val snippet = conversationSnippetFromContent(content)
+            return if (looksLikeConversation(title, content, sender)) {
+                NotificationImportance(
+                    "high",
+                    "Conversation from ${appLabelForPackage(packageName)}",
+                    true,
+                    "messaging",
+                    sender,
+                    snippet
+                )
+            } else {
+                NotificationImportance("low", "Messaging status update", false, "messaging")
+            }
         }
 
         if (looksLikeCalendarEvent(combined)) {
@@ -443,12 +553,20 @@ object DatabaseHelper {
         }
 
         if (isEmailPackage(packageName)) {
+            if (looksLikeNewsletterOrDigest(combined)) {
+                return NotificationImportance("low", "Email newsletter or digest", false, "email")
+            }
+            val sender = conversationSenderFromTitle(title)
+            val snippet = conversationSnippetFromContent(content)
             val looksHumanOrProject = Regex("""\b(project|client|meeting|review|invoice|receipt|offer|deadline|call|handoff|proposal|ready|question|follow up|follow-up)\b""")
-                .containsMatchIn(combined)
+                .containsMatchIn(combined) || looksLikeConversation(title, content, sender)
             return NotificationImportance(
                 if (looksHumanOrProject) "medium" else "low",
-                if (looksHumanOrProject) "Email context" else "Email notification",
-                looksHumanOrProject
+                if (looksHumanOrProject) "Email context from ${appLabelForPackage(packageName)}" else "Email notification",
+                looksHumanOrProject,
+                "email",
+                if (looksHumanOrProject) sender else null,
+                if (looksHumanOrProject) snippet else null
             )
         }
 
@@ -462,14 +580,32 @@ object DatabaseHelper {
     private fun isMessagingPackage(packageName: String): Boolean {
         return packageName.contains("whatsapp") ||
             packageName.contains("orca") ||
+            packageName.contains("facebook.orca") ||
             packageName.contains("messaging") ||
             packageName.contains("messages") ||
+            packageName.contains("google.android.apps.messaging") ||
+            packageName.contains("samsung.android.messaging") ||
             packageName.contains("slack") ||
             packageName.contains("teams") ||
             packageName.contains("telegram") ||
             packageName.contains("signal") ||
             packageName.contains("messenger") ||
-            packageName.contains("discord")
+            packageName.contains("discord") ||
+            packageName.contains("line") ||
+            packageName.contains("wechat") ||
+            packageName.contains("kakao") ||
+            packageName.contains("viber") ||
+            packageName.contains("skype") ||
+            packageName.contains("snapchat") ||
+            packageName.contains("linkedin") ||
+            packageName.contains("reddit") ||
+            packageName.contains("element") ||
+            packageName.contains("matrix") ||
+            packageName.contains("wire") ||
+            packageName.contains("threema") ||
+            packageName.contains("mattermost") ||
+            packageName.contains("zulip") ||
+            packageName.contains("rocket.chat")
     }
 
     private fun isEmailPackage(packageName: String): Boolean {
@@ -478,6 +614,70 @@ object DatabaseHelper {
             packageName.contains("email") ||
             packageName.contains("outlook") ||
             packageName.contains("mail")
+    }
+
+    private fun appLabelForPackage(packageName: String): String {
+        return when {
+            packageName.contains("gmail") || packageName.contains("google.android.gm") -> "Gmail"
+            packageName.contains("slack") -> "Slack"
+            packageName.contains("teams") -> "Teams"
+            packageName.contains("whatsapp") -> "WhatsApp"
+            packageName.contains("orca") || packageName.contains("messenger") -> "Messenger"
+            packageName.contains("discord") -> "Discord"
+            else -> packageName.split(".").lastOrNull()?.replaceFirstChar {
+                if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
+            } ?: "Unknown app"
+        }
+    }
+
+    private fun conversationSenderFromTitle(title: String): String? {
+        val clean = title
+            .replace(Regex("""^\[[^\]]+\]\s*"""), "")
+            .split(":")
+            .last()
+            .trim()
+        if (clean.isEmpty()) return null
+        val sender = clean
+            .split(Regex("""\s+"""))
+            .take(3)
+            .joinToString(" ")
+            .replace(Regex("""[^A-Za-z0-9 ._-]"""), "")
+            .trim()
+        val lower = sender.lowercase(Locale.US)
+        if (sender.length < 3) return null
+        if (Regex("""\b(user|cache|null|unknown|default|sync|notification|messages?|digest|newsletter|gmail|slack)\b""").containsMatchIn(lower)) {
+            return null
+        }
+        return sender
+    }
+
+    private fun conversationSnippetFromContent(content: String): String? {
+        val line = content
+            .lines()
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() }
+            ?: return null
+        val raw = if (line.contains(":")) line.substringAfter(":").trim() else line
+        if (raw.isEmpty() || looksLikeStatusNoise(raw.lowercase(Locale.US))) return null
+        return if (raw.length <= 140) raw else raw.take(140).trim() + "..."
+    }
+
+    private fun looksLikeConversation(title: String, content: String, sender: String?): Boolean {
+        val lower = content.lowercase(Locale.US).trim()
+        if (lower.length < 8 || looksLikeStatusNoise(lower)) return false
+        if (sender != null && sender.length >= 3 && lower.length >= 12) return true
+        return Regex("""(\?|can you|could you|please|review|call|meeting|send|sent|shared|attached|thanks|thank you|where|when|today|tomorrow|before|after|standup|proposal|client|project|deadline)""")
+            .containsMatchIn(lower)
+    }
+
+    private fun looksLikeStatusNoise(text: String): Boolean {
+        return Regex("""\b(syncing|sync complete|checking|background|running|connected|backup|updating|refreshing|waiting|no new|new messages|notification activity|battery|charging|missed call|caller id)\b""")
+            .containsMatchIn(text)
+    }
+
+    private fun looksLikeNewsletterOrDigest(text: String): Boolean {
+        return Regex("""\b(newsletter|digest|weekly roundup|unsubscribe|view in browser|promotion|sponsored|recommended for you)\b""")
+            .containsMatchIn(text)
     }
 
     private fun looksLikeWeather(text: String): Boolean {

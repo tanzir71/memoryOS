@@ -1,3 +1,5 @@
+import 'app_category_registry.dart';
+
 String? extractScreenshotFileName(Map<String, dynamic> metadata) {
   final explicitName = metadata['fileName']?.toString().trim();
   if (explicitName != null && explicitName.isNotEmpty) {
@@ -24,11 +26,17 @@ class NotificationImportance {
     required this.tier,
     required this.reason,
     required this.isPriorityEvent,
+    this.registryCategory,
+    this.conversationSender,
+    this.conversationSnippet,
   });
 
   final NotificationImportanceTier tier;
   final String reason;
   final bool isPriorityEvent;
+  final String? registryCategory;
+  final String? conversationSender;
+  final String? conversationSnippet;
 
   String get tierName => tier.name;
 }
@@ -40,13 +48,27 @@ NotificationImportance classifyNotificationImportance({
   required String content,
   String category = '',
   bool isOngoing = false,
+  String appName = '',
+  AppCategoryRegistry? registry,
 }) {
+  final effectiveRegistry = registry ?? AppCategoryRegistry.active;
   final packageLower = packageName.toLowerCase();
   final channelLower = channelId.toLowerCase();
   final categoryLower = category.toLowerCase();
   final combinedLower =
       '$packageLower $channelLower $categoryLower '
       '${title.toLowerCase()} ${content.toLowerCase()}';
+
+  if (effectiveRegistry.isUserDenied(
+    packageName: packageName,
+    appName: appName,
+  )) {
+    return const NotificationImportance(
+      tier: NotificationImportanceTier.suppress,
+      reason: "Don't Log app registry match",
+      isPriorityEvent: false,
+    );
+  }
 
   if (isMarketingNotification(
     packageName: packageName,
@@ -89,11 +111,45 @@ NotificationImportance classifyNotificationImportance({
     );
   }
 
-  if (_isMessagingPackage(packageLower) || categoryLower.contains('msg')) {
-    return const NotificationImportance(
-      tier: NotificationImportanceTier.high,
-      reason: 'Direct message',
-      isPriorityEvent: true,
+  final isMessagingApp =
+      effectiveRegistry.matches(
+        AppCategory.messaging,
+        packageName: packageName,
+        appName: appName,
+      ) ||
+      categoryLower.contains('msg');
+  final isEmailApp = effectiveRegistry.matches(
+    AppCategory.email,
+    packageName: packageName,
+    appName: appName,
+  );
+  final appLabel = effectiveRegistry.displayNameFor(
+    packageName: packageName,
+    appName: appName,
+  );
+
+  if (isMessagingApp) {
+    final sender = conversationSenderFromNotification(title: title);
+    final snippet = conversationSnippetFromNotification(content);
+    if (_looksLikeConversation(
+      title: title,
+      content: content,
+      sender: sender,
+    )) {
+      return NotificationImportance(
+        tier: NotificationImportanceTier.high,
+        reason: 'Conversation from $appLabel',
+        isPriorityEvent: true,
+        registryCategory: AppCategory.messaging.storageKey,
+        conversationSender: sender,
+        conversationSnippet: snippet,
+      );
+    }
+    return NotificationImportance(
+      tier: NotificationImportanceTier.low,
+      reason: 'Messaging status update',
+      isPriorityEvent: false,
+      registryCategory: AppCategory.messaging.storageKey,
     );
   }
 
@@ -105,17 +161,35 @@ NotificationImportance classifyNotificationImportance({
     );
   }
 
-  if (_isEmailPackage(packageLower)) {
-    final looksHumanOrProject = RegExp(
-      r'\b(project|client|meeting|review|invoice|receipt|offer|deadline|call|'
-      r'handoff|proposal|ready|question|follow up|follow-up)\b',
-    ).hasMatch(combinedLower);
+  if (isEmailApp || _isEmailPackage(packageLower)) {
+    if (_looksLikeNewsletterOrDigest(combinedLower)) {
+      return NotificationImportance(
+        tier: NotificationImportanceTier.low,
+        reason: 'Email newsletter or digest',
+        isPriorityEvent: false,
+        registryCategory: AppCategory.email.storageKey,
+      );
+    }
+    final sender = conversationSenderFromNotification(title: title);
+    final snippet = conversationSnippetFromNotification(content);
+    final looksHumanOrProject =
+        RegExp(
+          r'\b(project|client|meeting|review|invoice|receipt|offer|deadline|call|'
+          r'handoff|proposal|ready|question|follow up|follow-up|attached|'
+          r'proposal|clinic|partnership|standup)\b',
+        ).hasMatch(combinedLower) ||
+        _looksLikeConversation(title: title, content: content, sender: sender);
     return NotificationImportance(
       tier: looksHumanOrProject
           ? NotificationImportanceTier.medium
           : NotificationImportanceTier.low,
-      reason: looksHumanOrProject ? 'Email context' : 'Email notification',
+      reason: looksHumanOrProject
+          ? 'Email context from $appLabel'
+          : 'Email notification',
       isPriorityEvent: looksHumanOrProject,
+      registryCategory: AppCategory.email.storageKey,
+      conversationSender: looksHumanOrProject ? sender : null,
+      conversationSnippet: looksHumanOrProject ? snippet : null,
     );
   }
 
@@ -134,18 +208,89 @@ NotificationImportance classifyNotificationImportance({
   );
 }
 
-bool _isMessagingPackage(String packageName) {
-  return packageName.contains('whatsapp') ||
-      packageName.contains('orca') ||
-      packageName.contains('messaging') ||
-      packageName.contains('messages') ||
-      packageName.contains('slack') ||
-      packageName.contains('teams') ||
-      packageName.contains('telegram') ||
-      packageName.contains('signal') ||
-      packageName.contains('messenger') ||
-      packageName.contains('discord');
+String? conversationSenderFromNotification({required String title}) {
+  final cleanTitle = title
+      .replaceFirst(RegExp(r'^\[[^\]]+\]\s*'), '')
+      .split(':')
+      .last
+      .trim();
+  if (cleanTitle.isEmpty) return null;
+  final sender = cleanTitle
+      .split(RegExp(r'\s+'))
+      .take(3)
+      .join(' ')
+      .replaceAll(RegExp(r'[^A-Za-z0-9 ._-]'), '')
+      .trim();
+  if (sender.isEmpty) return null;
+  final lower = sender.toLowerCase();
+  if (_conversationPlaceholderWords.contains(lower)) return null;
+  if (RegExp(
+    r'\b(sync|notification|message|messages|digest|newsletter)\b',
+  ).hasMatch(lower)) {
+    return null;
+  }
+  return sender;
 }
+
+String? conversationSnippetFromNotification(String content) {
+  final lines = content
+      .split(RegExp(r'[\r\n]+'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+  if (lines.isEmpty) return null;
+  final raw = lines.first.contains(':')
+      ? lines.first.split(':').skip(1).join(':').trim()
+      : lines.first;
+  if (raw.isEmpty || _looksLikeStatusNoise(raw.toLowerCase())) return null;
+  return raw.length <= 140 ? raw : '${raw.substring(0, 140).trim()}...';
+}
+
+bool _looksLikeConversation({
+  required String title,
+  required String content,
+  required String? sender,
+}) {
+  final contentLower = content.toLowerCase().trim();
+  if (contentLower.length < 8) return false;
+  if (_looksLikeStatusNoise(contentLower)) return false;
+  if (sender != null && sender.length >= 3 && contentLower.length >= 12) {
+    return true;
+  }
+  return RegExp(
+    r"(\?|can you|could you|please|review|call|meeting|send|sent|shared|"
+    r"attached|thanks|thank you|where|when|today|tomorrow|before|after|"
+    r"standup|proposal|client|project|deadline)",
+  ).hasMatch(contentLower);
+}
+
+bool _looksLikeStatusNoise(String text) {
+  return RegExp(
+    r'\b(syncing|sync complete|checking|background|running|connected|'
+    r'backup|updating|refreshing|waiting|no new|new messages|'
+    r'notification activity|battery|charging|missed call|caller id)\b',
+  ).hasMatch(text);
+}
+
+bool _looksLikeNewsletterOrDigest(String text) {
+  return RegExp(
+    r'\b(newsletter|digest|weekly roundup|unsubscribe|view in browser|'
+    r'promotion|sponsored|recommended for you)\b',
+  ).hasMatch(text);
+}
+
+const _conversationPlaceholderWords = {
+  'user',
+  'cache',
+  'null',
+  'unknown',
+  'default',
+  'slack',
+  'gmail',
+  'messages',
+  'messenger',
+  'notification',
+};
 
 bool _isEmailPackage(String packageName) {
   return packageName.contains('gmail') ||
@@ -366,6 +511,19 @@ bool isSuppressedNotificationRecord({
 }) {
   if (source != 'notification') return false;
   return metadata['importanceTier']?.toString().toLowerCase() == 'suppress';
+}
+
+bool isDeniedNotificationRecord({
+  required String source,
+  required Map<String, dynamic> metadata,
+  AppCategoryRegistry? registry,
+}) {
+  if (source != 'notification') return false;
+  final effectiveRegistry = registry ?? AppCategoryRegistry.active;
+  return effectiveRegistry.isUserDenied(
+    packageName: metadata['packageName']?.toString() ?? '',
+    appName: metadata['appName']?.toString() ?? '',
+  );
 }
 
 String? shortWindowNotificationDedupeKey({

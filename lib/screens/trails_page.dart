@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../models/memory_node.dart';
+import '../services/app_category_registry.dart';
 import '../services/capture_interval_policy.dart';
 import '../services/capture_metadata.dart';
 import '../services/database_service.dart';
@@ -48,7 +49,22 @@ class _TrailsPageState extends State<TrailsPage> {
 
     IconData icon = Icons.tag;
     final lower = name.toLowerCase();
-    if (lower.contains('solar') ||
+    final registry = AppCategoryRegistry.active;
+    final registryMatch = registry.isDenied(packageName: name, appName: name)
+        ? null
+        : registry.firstMatch(packageName: name, appName: name);
+
+    if (registryMatch == AppCategory.messaging) {
+      icon = Icons.chat_bubble_outline;
+    } else if (registryMatch == AppCategory.email) {
+      icon = Icons.alternate_email;
+    } else if (registryMatch == AppCategory.food) {
+      icon = Icons.restaurant;
+    } else if (registryMatch == AppCategory.grocery) {
+      icon = Icons.local_grocery_store;
+    } else if (registryMatch == AppCategory.fitness) {
+      icon = Icons.fitness_center;
+    } else if (lower.contains('solar') ||
         lower.contains('battery') ||
         lower.contains('anode') ||
         lower.contains('efficiency') ||

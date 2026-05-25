@@ -5,20 +5,24 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:intl/intl.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:path_provider/path_provider.dart';
 import '../models/memory_node.dart';
 import '../services/capture_interval_policy.dart';
 import '../services/capture_metadata.dart';
 import '../services/database_service.dart';
+import '../services/export_period.dart';
 import '../services/capture_service.dart';
 import '../services/health_timeline.dart';
 import '../services/location_metadata.dart';
+import '../services/report_download_service.dart';
 import '../theme/app_theme.dart';
 
+enum _TimelineHeaderAction { recoverDeleted, deleteDayMemories }
+
 class TimelinePage extends StatefulWidget {
-  const TimelinePage({super.key, this.isActive = true});
+  const TimelinePage({super.key, this.isActive = true, this.initialNodes});
 
   final bool isActive;
+  final List<MemoryNode>? initialNodes;
 
   @override
   State<TimelinePage> createState() => _TimelinePageState();
@@ -77,11 +81,25 @@ class _TimelinePageState extends State<TimelinePage> {
       }
     });
 
-    _loadNodes();
+    DatabaseService.instance.loadAppCategoryRegistry().then((_) {
+      if (mounted) setState(() {});
+    });
+    if (widget.initialNodes != null) {
+      _nodes = widget.initialNodes!;
+      _isLoading = false;
+      if (_activeNodeId == null && _nodes.isNotEmpty) {
+        _activeNodeId = _nodes.first.id;
+      }
+    } else {
+      _loadNodes();
+    }
     _checkAllPermissions();
     _requestNotificationPermissionOnStartup();
     _databaseChangesSubscription = DatabaseService.instance.changes.listen((_) {
-      if (mounted && widget.isActive && !_isRecording) {
+      if (mounted &&
+          widget.isActive &&
+          !_isRecording &&
+          widget.initialNodes == null) {
         _loadNodes();
       }
     });
@@ -91,7 +109,18 @@ class _TimelinePageState extends State<TimelinePage> {
   @override
   void didUpdateWidget(covariant TimelinePage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.isActive && widget.isActive) {
+    if (oldWidget.initialNodes != widget.initialNodes &&
+        widget.initialNodes != null) {
+      setState(() {
+        _nodes = widget.initialNodes!;
+        _isLoading = false;
+        if (_activeNodeId == null && _nodes.isNotEmpty) {
+          _activeNodeId = _nodes.first.id;
+        }
+      });
+    } else if (!oldWidget.isActive &&
+        widget.isActive &&
+        widget.initialNodes == null) {
       _loadNodes();
       _checkAllPermissions();
     }
@@ -107,7 +136,10 @@ class _TimelinePageState extends State<TimelinePage> {
     if (_refreshTimer != null) return;
 
     _refreshTimer = Timer.periodic(uiRefreshInterval, (timer) {
-      if (mounted && widget.isActive && !_isRecording) {
+      if (mounted &&
+          widget.isActive &&
+          !_isRecording &&
+          widget.initialNodes == null) {
         _loadNodes();
         _checkAllPermissions();
       }
@@ -159,11 +191,20 @@ class _TimelinePageState extends State<TimelinePage> {
   }
 
   Future<void> _exportHealthReport() async {
-    final healthNodes = filterHealthTimelineEvents(_nodes);
+    final period = await showExportPeriodPicker(context);
+    if (period == null) return;
+
+    final allNodes =
+        widget.initialNodes ?? await DatabaseService.instance.fetchAllNodes();
+    final periodNodes = period.filterNodes(allNodes);
+    final healthNodes = filterHealthTimelineEvents(periodNodes);
+    if (!mounted) return;
     if (healthNodes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No health notifications to export for this day.'),
+        SnackBar(
+          content: Text(
+            'No health notifications to export for ${period.label}.',
+          ),
           backgroundColor: AppTheme.onSurfaceVariant,
         ),
       );
@@ -171,15 +212,19 @@ class _TimelinePageState extends State<TimelinePage> {
     }
 
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final file = File('${directory.path}/MemoryOS_Health_Report_$stamp.md');
-      await file.writeAsString(buildHealthTimelineReport(healthNodes));
+      final result = await ReportDownloadService.instance.saveMarkdownReport(
+        selectPeriod: () async => period,
+        suggestedName: (period) {
+          final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+          return 'MemoryOS_Health_Report_${period.filenameSlug}_$stamp.md';
+        },
+        buildMarkdown: (_) => buildHealthTimelineReport(healthNodes),
+      );
 
-      if (mounted) {
+      if (mounted && result.status == ReportDownloadStatus.saved) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Health report saved: ${file.path}'),
+            content: Text('Health report saved: ${result.path}'),
             backgroundColor: AppTheme.contextGreen,
             duration: const Duration(seconds: 4),
           ),
@@ -239,6 +284,86 @@ class _TimelinePageState extends State<TimelinePage> {
         );
       }
       return false;
+    }
+  }
+
+  Future<bool> _confirmDestructiveAction({
+    required String title,
+    required String message,
+    String confirmLabel = 'Delete',
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.error,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(confirmLabel),
+            ),
+          ],
+        );
+      },
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _deleteSelectedDayMemories() async {
+    if (_nodes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No memories to delete for this day.'),
+          backgroundColor: AppTheme.onSurfaceVariant,
+        ),
+      );
+      return;
+    }
+
+    final dayLabel = DateFormat('MMM d, yyyy').format(_selectedDate);
+    final confirmed = await _confirmDestructiveAction(
+      title: 'Delete this day?',
+      message:
+          'Move ${_nodes.length} ${_nodes.length == 1 ? 'memory' : 'memories'} from $dayLabel to Deleted Memories.',
+    );
+    if (!confirmed) return;
+
+    final count = await DatabaseService.instance.softDeleteNodesByDate(
+      _selectedDate,
+    );
+    if (!mounted) return;
+    setState(() {
+      _activeNodeId = null;
+    });
+    await _loadNodes();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '$count ${count == 1 ? 'memory' : 'memories'} moved to Deleted Memories.',
+        ),
+        backgroundColor: AppTheme.primary,
+      ),
+    );
+  }
+
+  void _handleTimelineHeaderAction(_TimelineHeaderAction action) {
+    switch (action) {
+      case _TimelineHeaderAction.recoverDeleted:
+        _openDeletedMemoriesSheet();
+        break;
+      case _TimelineHeaderAction.deleteDayMemories:
+        _deleteSelectedDayMemories();
+        break;
     }
   }
 
@@ -421,6 +546,70 @@ class _TimelinePageState extends State<TimelinePage> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final theme = Theme.of(context);
+            final selectedDayDeletedCount = deletedNodes
+                .where(
+                  (node) => DateUtils.isSameDay(node.timestamp, _selectedDate),
+                )
+                .length;
+
+            Future<void> refreshDeletedNodes() async {
+              final refreshed = await DatabaseService.instance
+                  .fetchDeletedNodes();
+              setModalState(() {
+                deletedNodes = refreshed;
+              });
+            }
+
+            Future<void> deleteDeletedForSelectedDay() async {
+              final dayLabel = DateFormat('MMM d, yyyy').format(_selectedDate);
+              final confirmed = await _confirmDestructiveAction(
+                title: 'Permanently delete this day?',
+                message:
+                    'Delete $selectedDayDeletedCount deleted ${selectedDayDeletedCount == 1 ? 'memory' : 'memories'} from $dayLabel forever. This cannot be undone.',
+                confirmLabel: 'Delete forever',
+              );
+              if (!confirmed) return;
+              final count = await DatabaseService.instance
+                  .permanentlyDeleteDeletedNodesByDate(_selectedDate);
+              if (!context.mounted) return;
+              await refreshDeletedNodes();
+              await _loadNodes();
+              if (!mounted) return;
+              ScaffoldMessenger.of(this.context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '$count deleted ${count == 1 ? 'memory' : 'memories'} permanently removed.',
+                  ),
+                  backgroundColor: AppTheme.error,
+                ),
+              );
+            }
+
+            Future<void> deleteAllDeletedNodes() async {
+              final countToDelete = deletedNodes.length;
+              final confirmed = await _confirmDestructiveAction(
+                title: 'Empty Deleted Memories?',
+                message:
+                    'Permanently delete all $countToDelete deleted ${countToDelete == 1 ? 'memory' : 'memories'}. This cannot be undone.',
+                confirmLabel: 'Empty deleted',
+              );
+              if (!confirmed) return;
+              final count = await DatabaseService.instance
+                  .permanentlyDeleteAllDeletedNodes();
+              if (!context.mounted) return;
+              await refreshDeletedNodes();
+              await _loadNodes();
+              if (!mounted) return;
+              ScaffoldMessenger.of(this.context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '$count deleted ${count == 1 ? 'memory' : 'memories'} permanently removed.',
+                  ),
+                  backgroundColor: AppTheme.error,
+                ),
+              );
+            }
+
             return SafeArea(
               top: false,
               child: Container(
@@ -461,6 +650,41 @@ class _TimelinePageState extends State<TimelinePage> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    if (deletedNodes.isNotEmpty) ...[
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: selectedDayDeletedCount == 0
+                                ? null
+                                : deleteDeletedForSelectedDay,
+                            icon: const Icon(Icons.delete_sweep, size: 18),
+                            label: Text(
+                              'Delete $selectedDayDeletedCount from this day',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.error,
+                              side: BorderSide(
+                                color: AppTheme.error.withValues(alpha: 0.35),
+                              ),
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: deleteAllDeletedNodes,
+                            icon: const Icon(Icons.delete_forever, size: 18),
+                            label: const Text('Empty deleted'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.error,
+                              side: BorderSide(
+                                color: AppTheme.error.withValues(alpha: 0.35),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     if (deletedNodes.isEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 32),
@@ -1093,6 +1317,7 @@ class _TimelinePageState extends State<TimelinePage> {
 
   void _openIngestSheet() {
     final TextEditingController contentCtrl = TextEditingController();
+    var markAsHealth = false;
 
     showModalBottomSheet(
       context: context,
@@ -1166,6 +1391,29 @@ class _TimelinePageState extends State<TimelinePage> {
                       ),
                     ),
                     const SizedBox(height: 24),
+                    FilterChip(
+                      selected: markAsHealth,
+                      onSelected: (selected) {
+                        setModalState(() {
+                          markAsHealth = selected;
+                        });
+                      },
+                      avatar: Icon(
+                        markAsHealth ? Icons.favorite : Icons.favorite_border,
+                        size: 18,
+                      ),
+                      label: const Text('Health log'),
+                      selectedColor: AppTheme.contextGreen.withValues(
+                        alpha: 0.14,
+                      ),
+                      checkmarkColor: AppTheme.contextGreen,
+                      side: BorderSide(
+                        color: markAsHealth
+                            ? AppTheme.contextGreen.withValues(alpha: 0.55)
+                            : AppTheme.outlineVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
 
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
@@ -1201,15 +1449,21 @@ class _TimelinePageState extends State<TimelinePage> {
                           metadata: {
                             'isManual': true,
                             'characterCount': content.length,
+                            if (markAsHealth) 'manualCategory': 'health',
+                            if (markAsHealth) 'markedHealth': true,
                           },
-                          trail: DatabaseService.classifyTrail(title, content),
+                          trail: markAsHealth
+                              ? 'health'
+                              : DatabaseService.classifyTrail(title, content),
                         );
 
                         await DatabaseService.instance.insertNode(node);
+                        if (!context.mounted) return;
                         Navigator.pop(context);
-                        _loadNodes();
+                        await _loadNodes();
+                        if (!mounted) return;
 
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        ScaffoldMessenger.of(this.context).showSnackBar(
                           SnackBar(
                             content: Text('Saved to secure enclave: "$title"'),
                             backgroundColor: AppTheme.contextGreen,
@@ -1233,6 +1487,8 @@ class _TimelinePageState extends State<TimelinePage> {
 
   // Voice recording bottom sheet
   void _openRecordingSheet() {
+    var markAsHealth = false;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1324,6 +1580,32 @@ class _TimelinePageState extends State<TimelinePage> {
                       ),
                       const SizedBox(height: 32),
 
+                      FilterChip(
+                        selected: markAsHealth,
+                        onSelected: _isRecording
+                            ? null
+                            : (selected) {
+                                setModalState(() {
+                                  markAsHealth = selected;
+                                });
+                              },
+                        avatar: Icon(
+                          markAsHealth ? Icons.favorite : Icons.favorite_border,
+                          size: 18,
+                        ),
+                        label: const Text('Health log'),
+                        selectedColor: AppTheme.contextGreen.withValues(
+                          alpha: 0.14,
+                        ),
+                        checkmarkColor: AppTheme.contextGreen,
+                        side: BorderSide(
+                          color: markAsHealth
+                              ? AppTheme.contextGreen.withValues(alpha: 0.55)
+                              : AppTheme.outlineVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
                       if (!_isRecording) ...[
                         // Input title before starting
                         TextField(
@@ -1361,6 +1643,7 @@ class _TimelinePageState extends State<TimelinePage> {
                           onPressed: () async {
                             final granted = await CaptureService.instance
                                 .requestPermission('voice_note');
+                            if (!context.mounted || !mounted) return;
                             if (granted) {
                               setModalState(() {
                                 _isRecording = true;
@@ -1403,7 +1686,11 @@ class _TimelinePageState extends State<TimelinePage> {
                             _recordingTimer?.cancel();
                             final title = _voiceTitleController.text.trim();
                             final node = await CaptureService.instance
-                                .stopRecording(title);
+                                .stopRecording(
+                                  title,
+                                  markAsHealth: markAsHealth,
+                                );
+                            if (!context.mounted || !mounted) return;
 
                             setState(() {
                               _isRecording = false;
@@ -1412,8 +1699,9 @@ class _TimelinePageState extends State<TimelinePage> {
                             Navigator.pop(context);
 
                             if (node != null) {
-                              _loadNodes();
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              await _loadNodes();
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(this.context).showSnackBar(
                                 SnackBar(
                                   content: Text(
                                     'Transcribed offline: "${node.title}"',
@@ -1458,25 +1746,18 @@ class _TimelinePageState extends State<TimelinePage> {
 
   Widget _buildHealthFilterBar(ThemeData theme, List<MemoryNode> healthNodes) {
     final healthCount = healthNodes.length;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        border: Border.all(
-          color: AppTheme.outlineVariant.withValues(alpha: 0.7),
-        ),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
+    final countLabel =
+        '$healthCount health ${healthCount == 1 ? 'event' : 'events'}';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
         children: [
           FilterChip(
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             avatar: Icon(
               _showHealthOnly ? Icons.favorite : Icons.favorite_border,
-              size: 18,
+              size: 16,
             ),
             label: const Text('Health'),
             selected: _showHealthOnly,
@@ -1493,28 +1774,42 @@ class _TimelinePageState extends State<TimelinePage> {
                   : AppTheme.outlineVariant,
             ),
           ),
-          Chip(
-            avatar: const Icon(Icons.notifications_active, size: 16),
-            label: Text(
-              '$healthCount health ${healthCount == 1 ? 'event' : 'events'}',
-              style: theme.textTheme.labelMedium,
-            ),
-            backgroundColor: Colors.white,
-            side: BorderSide(
-              color: AppTheme.outlineVariant.withValues(alpha: 0.6),
+          const SizedBox(width: 8),
+          Tooltip(
+            message: countLabel,
+            child: Container(
+              height: 28,
+              constraints: const BoxConstraints(minWidth: 34),
+              padding: const EdgeInsets.symmetric(horizontal: 9),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppTheme.contextGreenContainer.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: AppTheme.contextGreen.withValues(alpha: 0.22),
+                ),
+              ),
+              child: Text(
+                '$healthCount',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: AppTheme.contextGreen,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ),
-          OutlinedButton.icon(
-            onPressed: healthCount == 0 ? null : _exportHealthReport,
-            icon: const Icon(Icons.download, size: 18),
-            label: const Text('Health Report'),
-            style: OutlinedButton.styleFrom(
+          const Spacer(),
+          Tooltip(
+            message: 'Health report',
+            child: IconButton.outlined(
               visualDensity: VisualDensity.compact,
-              foregroundColor: AppTheme.contextGreen,
-              side: BorderSide(
-                color: healthCount == 0
-                    ? AppTheme.outlineVariant
-                    : AppTheme.contextGreen,
+              onPressed: _exportHealthReport,
+              icon: const Icon(Icons.download, size: 18),
+              color: AppTheme.contextGreen,
+              style: IconButton.styleFrom(
+                side: BorderSide(
+                  color: AppTheme.contextGreen.withValues(alpha: 0.5),
+                ),
               ),
             ),
           ),
@@ -1569,21 +1864,76 @@ class _TimelinePageState extends State<TimelinePage> {
                           color: AppTheme.onSurfaceVariant,
                         ),
                         const SizedBox(width: 4),
-                        Text(
-                          'SYNCHRONIZED VIA LOCAL NODE',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            letterSpacing: 0.8,
+                        Expanded(
+                          child: Text(
+                            'SYNCHRONIZED VIA LOCAL NODE',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              letterSpacing: 0.8,
+                            ),
                           ),
                         ),
-                        const Spacer(),
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          tooltip: 'Deleted Memories',
-                          onPressed: _openDeletedMemoriesSheet,
-                          icon: const Icon(
-                            Icons.restore_from_trash,
-                            size: 18,
-                            color: AppTheme.onSurfaceVariant,
+                        const SizedBox(width: 6),
+                        PopupMenuButton<_TimelineHeaderAction>(
+                          tooltip: 'Timeline actions',
+                          padding: EdgeInsets.zero,
+                          onSelected: _handleTimelineHeaderAction,
+                          itemBuilder: (context) {
+                            final canDeleteDay = _nodes.isNotEmpty;
+                            return [
+                              const PopupMenuItem(
+                                value: _TimelineHeaderAction.recoverDeleted,
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.restore_from_trash, size: 18),
+                                    SizedBox(width: 10),
+                                    Flexible(
+                                      child: Text(
+                                        'Recover deleted',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: _TimelineHeaderAction.deleteDayMemories,
+                                enabled: canDeleteDay,
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.delete_sweep,
+                                      size: 18,
+                                      color: canDeleteDay
+                                          ? AppTheme.error
+                                          : AppTheme.onSurfaceVariant,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    const Flexible(
+                                      child: Text(
+                                        'Delete day memories',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ];
+                          },
+                          child: Container(
+                            width: 34,
+                            height: 34,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: AppTheme.surfaceDim,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.more_vert,
+                              size: 20,
+                              color: AppTheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ],

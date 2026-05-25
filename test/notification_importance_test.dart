@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:memoryos/services/app_category_registry.dart';
 import 'package:memoryos/services/capture_metadata.dart';
 
 void main() {
@@ -72,5 +73,66 @@ void main() {
     expect(promo.tier, NotificationImportanceTier.suppress);
     expect(status.tier, NotificationImportanceTier.low);
     expect(status.isPriorityEvent, isFalse);
+  });
+
+  test('messaging apps are high only when content looks conversational', () {
+    final directMessage = classifyNotificationImportance(
+      packageName: 'com.slack',
+      channelId: 'messages',
+      title: 'Maya',
+      content: 'Can you review the launch checklist before standup?',
+    );
+    final placeholder = classifyNotificationImportance(
+      packageName: 'com.slack',
+      channelId: 'sync',
+      title: 'Slack',
+      content: 'Syncing messages in the background',
+    );
+
+    expect(directMessage.tier, NotificationImportanceTier.high);
+    expect(directMessage.reason, contains('Conversation'));
+    expect(placeholder.tier, NotificationImportanceTier.low);
+    expect(placeholder.isPriorityEvent, isFalse);
+  });
+
+  test('gmail newsletters stay low while human email context is important', () {
+    final newsletter = classifyNotificationImportance(
+      packageName: 'com.google.android.gm',
+      channelId: 'mail',
+      title: 'Weekly Digest',
+      content: 'Newsletter: 12 links you might like.',
+    );
+    final humanEmail = classifyNotificationImportance(
+      packageName: 'com.google.android.gm',
+      channelId: 'mail',
+      title: 'Nadia',
+      content: 'Can you review the proposal before the client call?',
+    );
+
+    expect(newsletter.tier, NotificationImportanceTier.low);
+    expect(
+      humanEmail.tier.index,
+      lessThanOrEqualTo(NotificationImportanceTier.medium.index),
+    );
+    expect(humanEmail.isPriorityEvent, isTrue);
+  });
+
+  test('user-denied apps are suppressed before conversation ranking', () {
+    final registry = const AppCategoryRegistry().copyWithDeniedAlias(
+      'com.whatsapp',
+    );
+
+    final importance = classifyNotificationImportance(
+      packageName: 'com.whatsapp',
+      appName: 'WhatsApp',
+      channelId: 'messages',
+      title: 'Nadia',
+      content: 'Can you review the proposal before the client call?',
+      registry: registry,
+    );
+
+    expect(importance.tier, NotificationImportanceTier.suppress);
+    expect(importance.isPriorityEvent, isFalse);
+    expect(importance.reason, contains('Don\'t Log'));
   });
 }

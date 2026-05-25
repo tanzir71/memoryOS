@@ -178,4 +178,55 @@ void main() {
       expect(topLabels, isNot(contains('Google')));
     },
   );
+
+  test('conversation content outranks cache null and user placeholders', () {
+    final terms = extractInsightTerms([
+      for (var i = 0; i < 6; i += 1)
+        node(
+          title: 'User Cache Null',
+          content: 'cache null user default unknown file path data',
+          metadata: const {
+            'packageName': 'com.android.systemui',
+            'cachedFilePath': '/data/user/0/cache/null.png',
+            'user': 'null',
+          },
+        ),
+      node(
+        title: 'Slack: Maya',
+        content: 'Maya: Can you review the nutrition dashboard before standup?',
+        metadata: const {
+          'packageName': 'com.slack',
+          'importanceTier': 'high',
+          'importanceReason': 'Conversation from Slack',
+          'isPriorityEvent': true,
+          'conversationSender': 'Maya',
+          'conversationSnippet':
+              'Can you review the nutrition dashboard before standup?',
+        },
+      ),
+      node(
+        title: 'Gmail: Nadia',
+        content: 'Proposal notes for the clinic partnership are attached.',
+        metadata: const {
+          'packageName': 'com.google.android.gm',
+          'importanceTier': 'medium',
+          'importanceReason': 'Email context from Gmail',
+          'isPriorityEvent': true,
+          'conversationSender': 'Nadia',
+          'conversationSnippet':
+              'Proposal notes for the clinic partnership are attached.',
+        },
+      ),
+    ]);
+
+    final labels = terms.map((term) => term.label).toList();
+
+    expect(labels.take(4), contains('Maya'));
+    expect(labels.take(4), contains('Nadia'));
+    expect(labels, isNot(contains('User')));
+    expect(labels, isNot(contains('Cache')));
+    expect(labels, isNot(contains('Null')));
+    expect(labels, isNot(contains('Default')));
+    expect(labels, isNot(contains('Unknown')));
+  });
 }

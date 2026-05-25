@@ -21,10 +21,10 @@ List<String> extractFrequentInsightKeywords(
   List<MemoryNode> nodes, {
   int limit = 6,
 }) {
-  return extractInsightTerms(
+  return extractInsightGroups(
     nodes,
     limit: limit,
-  ).map((term) => term.label).toList();
+  ).map((group) => group.label).toList();
 }
 
 List<AggregatedInsight> buildAggregatedInsights(
@@ -34,32 +34,31 @@ List<AggregatedInsight> buildAggregatedInsights(
 }) {
   if (nodes.isEmpty) return [];
 
-  final terms = selectedKeyword == 'All'
-      ? extractInsightTerms(nodes, limit: limit)
-      : [insightTermFromLabel(selectedKeyword)];
+  final groups = selectedKeyword == 'All'
+      ? extractInsightGroups(nodes, limit: limit)
+      : [insightGroupFromLabel(selectedKeyword)];
 
   final insights = <AggregatedInsight>[];
-  for (final term in terms) {
+  for (final group in groups) {
     final matchingNodes = nodes
-        .where((node) => nodeMatchesInsightTerm(node, term))
+        .where((node) => nodeMatchesInsightGroup(node, group))
         .toList();
 
     if (matchingNodes.isEmpty) continue;
 
     matchingNodes.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     final latest = matchingNodes.first;
-    final sources =
-        matchingNodes.map((node) => _sourceLabel(node.source)).toSet().toList()
-          ..sort();
+    final sources = matchingNodes.expand(_sourceLabelsForNode).toSet().toList()
+      ..sort();
 
     insights.add(
       AggregatedInsight(
-        keyword: term.label,
+        keyword: group.label,
         count: matchingNodes.length,
         sources: sources,
         latestTimestamp: latest.timestamp,
         summary: _buildSummary(
-          keyword: term.label,
+          group: group,
           matchingNodes: matchingNodes,
           sources: sources,
           latest: latest,
@@ -72,13 +71,13 @@ List<AggregatedInsight> buildAggregatedInsights(
 }
 
 String _buildSummary({
-  required String keyword,
+  required InsightGroup group,
   required List<MemoryNode> matchingNodes,
   required List<String> sources,
   required MemoryNode latest,
 }) {
   final relatedTerms = extractInsightTerms(matchingNodes, limit: 5)
-      .where((term) => term.normalized != normalizeInsightTerm(keyword))
+      .where((term) => term.normalized != group.normalized)
       .map((term) => term.label)
       .take(3)
       .toList();
@@ -87,25 +86,45 @@ String _buildSummary({
   final sourceLabel = sources.length == 1
       ? 'from ${sources.single}'
       : 'across ${_joinHuman(sources)}';
+  final isAppGroup = group.category != 'topic';
   final buffer = StringBuffer(
-    '$countLabel about $keyword $sourceLabel. ',
+    isAppGroup
+        ? '$countLabel from ${group.label} via ${_joinHuman(sources)}. '
+        : '$countLabel about ${group.label} $sourceLabel. ',
   );
 
   final priorityNode = matchingNodes.cast<MemoryNode?>().firstWhere(
-        (node) =>
-            node != null &&
-            (node.metadata['isPriorityEvent'] == true ||
-                node.metadata['isPriorityEvent']?.toString().toLowerCase() ==
-                    'true' ||
-                node.metadata['importanceTier']?.toString().toLowerCase() ==
-                    'high'),
-        orElse: () => null,
-      );
+    (node) =>
+        node != null &&
+        (node.metadata['isPriorityEvent'] == true ||
+            node.metadata['isPriorityEvent']?.toString().toLowerCase() ==
+                'true' ||
+            node.metadata['importanceTier']?.toString().toLowerCase() ==
+                'high'),
+    orElse: () => null,
+  );
   if (priorityNode != null) {
     final reason = priorityNode.metadata['importanceReason']?.toString();
-    buffer.write(
-      'Priority event${reason == null || reason.isEmpty ? "" : ": $reason"}. ',
-    );
+    final sender = priorityNode.metadata['conversationSender']?.toString();
+    final snippet = priorityNode.metadata['conversationSnippet']?.toString();
+    final isConversation =
+        reason != null &&
+        RegExp(
+          r'\b(conversation|email context)\b',
+          caseSensitive: false,
+        ).hasMatch(reason);
+    if (isConversation) {
+      buffer.write(
+        '$reason${sender == null || sender.isEmpty ? "" : ": $sender"}. ',
+      );
+      if (snippet != null && snippet.isNotEmpty) {
+        buffer.write('Latest snippet: $snippet. ');
+      }
+    } else {
+      buffer.write(
+        'Priority event${reason == null || reason.isEmpty ? "" : ": $reason"}. ',
+      );
+    }
   }
 
   if (relatedTerms.isNotEmpty) {
@@ -139,5 +158,13 @@ String _sourceLabel(String source) {
       return 'reading';
     default:
       return source.replaceAll('_', ' ');
+  }
+}
+
+Iterable<String> _sourceLabelsForNode(MemoryNode node) sync* {
+  yield _sourceLabel(node.source);
+  final category = node.metadata['registryCategory']?.toString().trim();
+  if (category != null && category.isNotEmpty) {
+    yield category;
   }
 }

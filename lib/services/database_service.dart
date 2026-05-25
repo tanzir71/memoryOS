@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/memory_node.dart';
 import 'capture_metadata.dart';
+import 'app_category_registry.dart';
 import 'insight_terms.dart';
 
 class DatabaseService {
@@ -99,6 +100,22 @@ class DatabaseService {
     return null;
   }
 
+  Future<AppCategoryRegistry> loadAppCategoryRegistry() async {
+    final value = await getSetting(AppCategoryRegistry.settingsKey);
+    final registry = AppCategoryRegistry.fromSettingsValue(value);
+    AppCategoryRegistry.active = registry;
+    return registry;
+  }
+
+  Future<void> saveAppCategoryRegistry(AppCategoryRegistry registry) async {
+    await saveSetting(
+      AppCategoryRegistry.settingsKey,
+      registry.toSettingsValue(),
+    );
+    AppCategoryRegistry.active = registry;
+    _emitChange();
+  }
+
   // Auto-classify trail based on keywords
   static String classifyTrail(String title, String content) {
     final text = '$title $content'.toLowerCase();
@@ -153,6 +170,16 @@ class DatabaseService {
 
   Future<int> insertNode(MemoryNode node) async {
     final db = await instance.database;
+    if (node.source == 'notification') {
+      await loadAppCategoryRegistry();
+      if (isDeniedNotificationRecord(
+        source: node.source,
+        metadata: node.metadata,
+      )) {
+        return 0;
+      }
+    }
+
     // Auto-classify if trail is 'none' or empty
     String trail = node.trail;
     if (trail == 'none' || trail.isEmpty) {
@@ -242,18 +269,20 @@ class DatabaseService {
   }
 
   Future<List<String>> getDynamicThreads() async {
+    await loadAppCategoryRegistry();
     final nodes = await fetchAllNodes();
-    return extractInsightTerms(
+    return extractInsightGroups(
       nodes,
       limit: 6,
-    ).map((term) => term.label).toList();
+    ).map((group) => group.label).toList();
   }
 
-  // Fetch nodes containing the dynamic noun keyword in their content or title
+  // Fetch nodes matching the app-first dynamic group, with noun fallback.
   Future<List<MemoryNode>> fetchNodesByDynamicThread(String keyword) async {
-    final term = insightTermFromLabel(keyword);
+    await loadAppCategoryRegistry();
+    final group = insightGroupFromLabel(keyword);
     final nodes = await fetchAllNodes();
-    return nodes.where((node) => nodeMatchesInsightTerm(node, term)).toList();
+    return nodes.where((node) => nodeMatchesInsightGroup(node, group)).toList();
   }
 
   Future<int> deleteNode(int id) async {
@@ -267,6 +296,18 @@ class DatabaseService {
       {'deleted_at': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [id],
+    );
+    if (count > 0) _emitChange();
+    return count;
+  }
+
+  Future<int> softDeleteNodesByDate(DateTime date) async {
+    final db = await instance.database;
+    final count = await db.update(
+      'memory_nodes',
+      {'deleted_at': DateTime.now().toIso8601String()},
+      where: 'timestamp >= ? AND timestamp < ? AND deleted_at IS NULL',
+      whereArgs: [_startOfDayIso(date), _startOfNextDayIso(date)],
     );
     if (count > 0) _emitChange();
     return count;
@@ -290,6 +331,27 @@ class DatabaseService {
       'memory_nodes',
       where: 'id = ?',
       whereArgs: [id],
+    );
+    if (count > 0) _emitChange();
+    return count;
+  }
+
+  Future<int> permanentlyDeleteDeletedNodesByDate(DateTime date) async {
+    final db = await instance.database;
+    final count = await db.delete(
+      'memory_nodes',
+      where: 'deleted_at IS NOT NULL AND timestamp >= ? AND timestamp < ?',
+      whereArgs: [_startOfDayIso(date), _startOfNextDayIso(date)],
+    );
+    if (count > 0) _emitChange();
+    return count;
+  }
+
+  Future<int> permanentlyDeleteAllDeletedNodes() async {
+    final db = await instance.database;
+    final count = await db.delete(
+      'memory_nodes',
+      where: 'deleted_at IS NOT NULL',
     );
     if (count > 0) _emitChange();
     return count;
@@ -337,6 +399,13 @@ class DatabaseService {
       }
 
       if (isSuppressedNotificationRecord(
+        source: node.source,
+        metadata: node.metadata,
+      )) {
+        return false;
+      }
+
+      if (isDeniedNotificationRecord(
         source: node.source,
         metadata: node.metadata,
       )) {
@@ -419,5 +488,13 @@ class DatabaseService {
     if (!_changesController.isClosed) {
       _changesController.add(null);
     }
+  }
+
+  String _startOfDayIso(DateTime date) {
+    return DateTime(date.year, date.month, date.day).toIso8601String();
+  }
+
+  String _startOfNextDayIso(DateTime date) {
+    return DateTime(date.year, date.month, date.day + 1).toIso8601String();
   }
 }

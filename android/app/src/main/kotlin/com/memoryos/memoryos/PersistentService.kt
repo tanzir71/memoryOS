@@ -46,10 +46,12 @@ class PersistentService : Service() {
         private const val LOCATION_SAMPLE_INTERVAL_MS = 4 * 60 * 60 * 1000L
         private const val ACTION_PAUSE_LISTENING = "com.memoryos.memoryos.action.PAUSE_LISTENING"
         private const val ACTION_RESUME_LISTENING = "com.memoryos.memoryos.action.RESUME_LISTENING"
+        private const val CAPTURE_STATUS_TTL_MS = 10_000L
 
         fun recordCapture(context: Context, source: String, title: String) {
             try {
-                val sharedPref = context.getSharedPreferences("memoryos_prefs", Context.MODE_PRIVATE)
+                val appContext = context.applicationContext
+                val sharedPref = appContext.getSharedPreferences("memoryos_prefs", Context.MODE_PRIVATE)
                 val newCount = sharedPref.getInt("recorded_event_count", 0) + 1
                 with(sharedPref.edit()) {
                     putInt("recorded_event_count", newCount)
@@ -59,9 +61,12 @@ class PersistentService : Service() {
                     apply()
                 }
 
-                createNotificationChannel(context)
-                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                notificationManager.notify(NOTIFICATION_ID, buildNotification(context))
+                createNotificationChannel(appContext)
+                val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.notify(NOTIFICATION_ID, buildNotification(appContext))
+                Handler(Looper.getMainLooper()).postDelayed({
+                    notificationManager.notify(NOTIFICATION_ID, buildNotification(appContext))
+                }, CAPTURE_STATUS_TTL_MS)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to update foreground status notification: ${e.message}", e)
             }
@@ -139,14 +144,16 @@ class PersistentService : Service() {
                 return "Passive collectors paused. Tap Resume to continue."
             }
 
-            val count = sharedPref.getInt("recorded_event_count", 0)
             val lastTitle = sharedPref.getString("last_capture_title", null)
             val lastSource = sharedPref.getString("last_capture_source", null)
+            val lastCaptureAt = sharedPref.getLong("last_capture_at", 0L)
+            val showLastCapture = lastCaptureAt > 0L &&
+                System.currentTimeMillis() - lastCaptureAt <= CAPTURE_STATUS_TTL_MS
 
-            return if (!lastTitle.isNullOrBlank() && !lastSource.isNullOrBlank()) {
-                "Last ${prettySource(lastSource)}: ${lastTitle.take(36)}"
+            return if (showLastCapture && !lastTitle.isNullOrBlank() && !lastSource.isNullOrBlank()) {
+                "Logged ${prettySource(lastSource)}: ${lastTitle.take(36)}"
             } else {
-                "Passive collectors armed. $count events recorded."
+                "Listening for passive events."
             }
         }
 
