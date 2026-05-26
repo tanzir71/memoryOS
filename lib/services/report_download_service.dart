@@ -136,7 +136,7 @@ Future<String?> _defaultSaveMarkdownFile({
   required String contents,
 }) async {
   final bytes = Uint8List.fromList(utf8.encode(contents));
-  final path = await FilePicker.saveFile(
+  final path = await FilePicker.platform.saveFile(
     dialogTitle: 'Save MemoryOS report',
     fileName: suggestedName,
     type: FileType.custom,
