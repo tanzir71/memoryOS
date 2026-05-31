@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../widgets/memory_os_logo.dart';
 import 'timeline_page.dart';
 import 'summary_page.dart';
 import 'sources_page.dart';
@@ -34,7 +35,9 @@ class _ShellPageState extends State<ShellPage> {
             ),
             backgroundColor: AppTheme.primary,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
         );
       }
@@ -44,23 +47,21 @@ class _ShellPageState extends State<ShellPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+    final bottomNavPadding = bottomInset > 12 ? bottomInset : 12.0;
+
     return Scaffold(
       // Global Sticky App Bar
       appBar: AppBar(
         title: Row(
           children: [
-            const Icon(
-              Icons.security,
-              color: AppTheme.primary,
-              size: 24,
-            ),
+            const MemoryOSLogo(size: 24),
             const SizedBox(width: 8),
             Text(
-              'Memory OS',
+              'MemoryOS',
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
-                letterSpacing: -0.5,
+                letterSpacing: 0,
               ),
             ),
           ],
@@ -74,23 +75,19 @@ class _ShellPageState extends State<ShellPage> {
                     height: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        AppTheme.primary,
+                      ),
                     ),
                   )
-                : const Icon(
-                    Icons.sync,
-                    color: AppTheme.onSurfaceVariant,
-                  ),
+                : const Icon(Icons.sync, color: AppTheme.onSurfaceVariant),
             tooltip: 'Synchronize Local Streams',
           ),
           const SizedBox(width: 12),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
-          child: Container(
-            color: Colors.black.withOpacity(0.05),
-            height: 1.0,
-          ),
+          child: Container(color: Colors.black.withOpacity(0.05), height: 1.0),
         ),
       ),
       body: IndexedStack(
@@ -116,19 +113,17 @@ class _ShellPageState extends State<ShellPage> {
       ),
       // Stitch Custom Navigation Bar
       bottomNavigationBar: Container(
+        key: const Key('shell-bottom-navigation-bar'),
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.95),
           border: Border(
-            top: BorderSide(
-              color: Colors.black.withOpacity(0.05),
-              width: 1,
-            ),
+            top: BorderSide(color: Colors.black.withOpacity(0.05), width: 1),
           ),
         ),
-        child: SafeArea(
-          child: Container(
+        child: Padding(
+          padding: EdgeInsets.only(bottom: bottomNavPadding),
+          child: SizedBox(
             height: 64,
-            padding: const EdgeInsets.symmetric(vertical: 4),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
@@ -150,45 +145,50 @@ class _ShellPageState extends State<ShellPage> {
     final activeColor = AppTheme.primary;
     final inactiveColor = AppTheme.onSurfaceVariant.withOpacity(0.6);
 
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _currentIndex = index;
-        });
-      },
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isActive ? activeColor : inactiveColor,
-              size: 24,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: theme.textTheme.labelSmall?.copyWith(
-                fontFamily: 'JetBrains Mono',
-                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
                 color: isActive ? activeColor : inactiveColor,
-                fontSize: 10,
+                size: 24,
               ),
-            ),
-            // Bottom small line matching the Stitch active nav line
-            if (isActive)
-              Container(
-                margin: const EdgeInsets.only(top: 2),
-                width: 16,
-                height: 2,
-                decoration: BoxDecoration(
-                  color: activeColor,
-                  borderRadius: BorderRadius.circular(1),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFamily: 'JetBrains Mono',
+                  fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                  color: isActive ? activeColor : inactiveColor,
+                  fontSize: 10,
                 ),
               ),
-          ],
+              // Bottom small line matching the Stitch active nav line
+              if (isActive)
+                Container(
+                  margin: const EdgeInsets.only(top: 2),
+                  width: 16,
+                  height: 2,
+                  decoration: BoxDecoration(
+                    color: activeColor,
+                    borderRadius: BorderRadius.circular(1),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

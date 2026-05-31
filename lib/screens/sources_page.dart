@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../services/app_category_registry.dart';
 import '../services/capture_interval_policy.dart';
 import '../services/capture_service.dart';
@@ -613,10 +612,9 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
                   padding: const EdgeInsets.only(bottom: 6.0),
                   child: Text(
                     _logs[index],
-                    style: GoogleFonts.jetBrainsMono(
-                      color: const Color(
-                        0xFFC5C8C6,
-                      ), // Bright grey terminal text
+                    style: const TextStyle(
+                      fontFamily: 'JetBrains Mono',
+                      color: Color(0xFFC5C8C6), // Bright grey terminal text
                       fontSize: 10.5,
                       height: 1.4,
                     ),

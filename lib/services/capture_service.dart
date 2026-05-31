@@ -96,7 +96,7 @@ class CaptureService {
     _log("SYSTEM: Loaded persisted streams configuration.");
 
     // Automatically manage background service state based on active toggles
-    await _updateBackgroundServiceState();
+    unawaited(_updateBackgroundServiceState());
   }
 
   // Self-managing background service activation based on active toggles
@@ -104,8 +104,7 @@ class CaptureService {
     final anyPersistentCollectorEnabled =
         sourceToggles['location'] == true ||
         sourceToggles['bluetooth'] == true ||
-        sourceToggles['photo'] == true ||
-        sourceToggles['notification'] == true;
+        sourceToggles['photo'] == true;
 
     if (anyPersistentCollectorEnabled) {
       if (!_globalBackgroundEnabled) {
@@ -166,7 +165,7 @@ class CaptureService {
   // Get active toggles
   bool isSourceEnabled(String source) => sourceToggles[source] ?? false;
 
-  // Request Permissions using permission_handler or flutter_background
+  // Request permissions using permission_handler and native Android channels.
   Future<bool> requestPermission(String source) async {
     if (source == 'reading') {
       setSourceToggle('reading', true);

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../models/memory_node.dart';
 import '../services/app_category_registry.dart';
@@ -802,7 +801,8 @@ class _TrailsPageState extends State<TrailsPage> {
                     ),
                     child: Text(
                       '${e.key}: $valStr',
-                      style: GoogleFonts.jetBrainsMono(
+                      style: const TextStyle(
+                        fontFamily: 'JetBrains Mono',
                         fontSize: 8.5,
                         color: AppTheme.primary,
                       ),

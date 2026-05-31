@@ -3,6 +3,7 @@ package com.memoryos.memoryos
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -21,18 +22,15 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Start the PersistentService to listen for task removal if configured persistent
+        // Dart owns foreground-service reconciliation after the first frame. This
+        // keeps stale restored native preferences from starting a service before
+        // Flutter has loaded the current SQLite-backed source toggles.
         try {
             val sharedPref = getSharedPreferences("memoryos_prefs", Context.MODE_PRIVATE)
             val isPersistent = sharedPref.getBoolean("is_persistent", false)
-            if (isPersistent) {
-                val serviceIntent = Intent(this, PersistentService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(serviceIntent)
-                } else {
-                    startService(serviceIntent)
-                }
-                Log.d("MainActivity", "Cold start: Started PersistentService based on preferences")
+            if (isPersistent && !hasNativePersistentCollector(sharedPref)) {
+                sharedPref.edit().putBoolean("is_persistent", false).apply()
+                Log.d("MainActivity", "Cold start: Cleared stale persistent flag; no native collectors require a foreground service.")
             }
         } catch (e: Exception) {
             // Ignore
@@ -72,6 +70,12 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun hasNativePersistentCollector(sharedPref: SharedPreferences): Boolean {
+        return sharedPref.getBoolean("toggle_location", false) ||
+            sharedPref.getBoolean("toggle_bluetooth", false) ||
+            sharedPref.getBoolean("toggle_photo", false)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
@@ -83,11 +87,15 @@ class MainActivity : FlutterActivity() {
                     val isPhotoEnabled = args?.get("isPhotoEnabled") as? Boolean ?: false
                     val isNotificationEnabled = args?.get("isNotificationEnabled") as? Boolean ?: false
                     val sourceToggles = args?.get("sourceToggles") as? Map<*, *>
+                    val isLocationEnabled = sourceToggles?.get("location") as? Boolean ?: false
+                    val isBluetoothEnabled = sourceToggles?.get("bluetooth") as? Boolean ?: false
+                    val hasNativeCollector = isLocationEnabled || isBluetoothEnabled || isPhotoEnabled
+                    val shouldPersist = isPersistent && hasNativeCollector
                     
                     // Save to native SharedPreferences so PersistentService can access it
                     val sharedPref = getSharedPreferences("memoryos_prefs", Context.MODE_PRIVATE)
                     with(sharedPref.edit()) {
-                        putBoolean("is_persistent", isPersistent)
+                        putBoolean("is_persistent", shouldPersist)
                         putBoolean("toggle_photo", isPhotoEnabled)
                         putBoolean("toggle_notification", isNotificationEnabled)
                         sourceToggles?.forEach { entry ->
@@ -102,7 +110,7 @@ class MainActivity : FlutterActivity() {
                     
                     try {
                         val serviceIntent = Intent(this, PersistentService::class.java)
-                        if (isPersistent) {
+                        if (shouldPersist) {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                 startForegroundService(serviceIntent)
                             } else {

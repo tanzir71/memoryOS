@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:intl/intl.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/memory_node.dart';
@@ -94,7 +93,6 @@ class _TimelinePageState extends State<TimelinePage> {
       _loadNodes();
     }
     _checkAllPermissions();
-    _requestNotificationPermissionOnStartup();
     _databaseChangesSubscription = DatabaseService.instance.changes.listen((_) {
       if (mounted &&
           widget.isActive &&
@@ -144,18 +142,6 @@ class _TimelinePageState extends State<TimelinePage> {
         _checkAllPermissions();
       }
     });
-  }
-
-  Future<void> _requestNotificationPermissionOnStartup() async {
-    try {
-      if (Platform.isAndroid) {
-        final status = await Permission.notification.status;
-        if (!status.isGranted) {
-          await Permission.notification.request();
-          _checkAllPermissions();
-        }
-      }
-    } catch (_) {}
   }
 
   @override
@@ -1272,11 +1258,15 @@ class _TimelinePageState extends State<TimelinePage> {
                 size: 20,
               ),
               const SizedBox(width: 8),
-              Text(
-                'Permissions Onboarding Setup',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.primary,
+              Expanded(
+                child: Text(
+                  'Permissions Onboarding Setup',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.primary,
+                  ),
                 ),
               ),
             ],

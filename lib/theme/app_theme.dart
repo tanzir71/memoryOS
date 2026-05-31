@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   // Brand Color Palette
-  static const Color primary = Color(0xFF503C76); // Insight Purple / Deep Indigo
-  static const Color primaryContainer = Color(0xFFF0F1F7); // Soft light blue-grey
-  static const Color secondary = Color(0xFF533E78); 
-  static const Color secondaryContainer = Color(0xFFF4F0FF); // Very light violet
+  static const Color primary = Color(
+    0xFF503C76,
+  ); // Insight Purple / Deep Indigo
+  static const Color primaryContainer = Color(
+    0xFFF0F1F7,
+  ); // Soft light blue-grey
+  static const Color secondary = Color(0xFF533E78);
+  static const Color secondaryContainer = Color(
+    0xFFF4F0FF,
+  ); // Very light violet
   static const Color background = Color(0xFFF8F9FA); // Neutral background
   static const Color surface = Color(0xFFFFFFFF);
   static const Color surfaceDim = Color(0xFFF1F3F5);
@@ -16,12 +21,18 @@ class AppTheme {
   static const Color outlineVariant = Color(0xFFE1E2E8);
   static const Color error = Color(0xFFBA1A1A);
   static const Color errorContainer = Color(0xFFFCEAEA);
-  
+
   // Context Accent Colors
-  static const Color contextAmber = Color(0xFF604100); // Muted Dark Gold for text
-  static const Color contextAmberLight = Color(0xFFFFBA38); // Bright gold for accents
-  static const Color contextAmberContainer = Color(0xFFFFF1DB); // Very light gold
-  
+  static const Color contextAmber = Color(
+    0xFF604100,
+  ); // Muted Dark Gold for text
+  static const Color contextAmberLight = Color(
+    0xFFFFBA38,
+  ); // Bright gold for accents
+  static const Color contextAmberContainer = Color(
+    0xFFFFF1DB,
+  ); // Very light gold
+
   static const Color contextGreen = Color(0xFF1A7544); // Safe status
   static const Color contextGreenContainer = Color(0xFFE3F7EC);
 
@@ -58,45 +69,52 @@ class AppTheme {
         ),
       ),
       textTheme: TextTheme(
-        displayLarge: GoogleFonts.inter(
+        displayLarge: const TextStyle(
+          fontFamily: 'Inter',
           fontSize: 32,
           fontWeight: FontWeight.bold,
           height: 40 / 32,
-          letterSpacing: -0.02,
+          letterSpacing: 0,
           color: onSurface,
         ),
-        headlineMedium: GoogleFonts.inter(
+        headlineMedium: const TextStyle(
+          fontFamily: 'Inter',
           fontSize: 24,
           fontWeight: FontWeight.w600,
           height: 32 / 24,
           color: onSurface,
         ),
-        headlineSmall: GoogleFonts.inter(
+        headlineSmall: const TextStyle(
+          fontFamily: 'Inter',
           fontSize: 20,
           fontWeight: FontWeight.w600,
           height: 28 / 20,
           color: onSurface,
         ),
-        bodyLarge: GoogleFonts.inter(
+        bodyLarge: const TextStyle(
+          fontFamily: 'Inter',
           fontSize: 16,
           fontWeight: FontWeight.normal,
           height: 24 / 16,
           color: onSurface,
         ),
-        bodyMedium: GoogleFonts.inter(
+        bodyMedium: const TextStyle(
+          fontFamily: 'Inter',
           fontSize: 14,
           fontWeight: FontWeight.normal,
           height: 20 / 14,
           color: onSurface,
         ),
-        labelLarge: GoogleFonts.jetBrainsMono(
+        labelLarge: const TextStyle(
+          fontFamily: 'JetBrains Mono',
           fontSize: 12,
           fontWeight: FontWeight.w600,
           height: 16 / 12,
           letterSpacing: 0.05,
           color: onSurface,
         ),
-        labelSmall: GoogleFonts.jetBrainsMono(
+        labelSmall: const TextStyle(
+          fontFamily: 'JetBrains Mono',
           fontSize: 10,
           fontWeight: FontWeight.w500,
           height: 14 / 10,

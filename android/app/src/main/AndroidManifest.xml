@@ -22,16 +22,13 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
-        android:label="memoryos"
+        android:label="MemoryOS"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@drawable/ic_memory_os_gem"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:requestLegacyExternalStorage="true">
-        
-        <service
-            android:name="de.julianassmann.flutter_background.IsolateHolderService"
-            android:foregroundServiceType="dataSync"
-            android:stopWithTask="false"
-            android:exported="false" />
+
         <service
             android:name="com.memoryos.memoryos.PersistentService"
             android:foregroundServiceType="dataSync|location"

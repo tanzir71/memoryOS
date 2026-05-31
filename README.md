@@ -1,4 +1,4 @@
-# memoryos
+# MemoryOS
 
 A new Flutter project.
 

@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:memoryos/main.dart';
 import 'package:memoryos/models/memory_node.dart';
+import 'package:memoryos/screens/shell_page.dart';
 import 'package:memoryos/screens/summary_page.dart';
 import 'package:memoryos/screens/sources_page.dart';
 import 'package:memoryos/screens/timeline_page.dart';
@@ -10,6 +14,35 @@ import 'package:memoryos/services/capture_service.dart';
 import 'package:memoryos/services/database_service.dart';
 
 void main() {
+  testWidgets('MemoryOS Shell renders before native persistence responds', (
+    WidgetTester tester,
+  ) async {
+    const persistentChannel = MethodChannel('com.memoryos.memoryos/persistent');
+    final nativePersistenceCompleter = Completer<void>();
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          persistentChannel,
+          (_) => nativePersistenceCompleter.future,
+        );
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(persistentChannel, null);
+      if (!nativePersistenceCompleter.isCompleted) {
+        nativePersistenceCompleter.complete();
+      }
+    });
+
+    await tester.pumpWidget(const MemoryOSApp());
+    await tester.pump();
+
+    expect(find.text('MemoryOS'), findsOneWidget);
+    expect(find.text('Timeline'), findsOneWidget);
+
+    nativePersistenceCompleter.complete();
+    await tester.pump();
+  });
+
   testWidgets('MemoryOS Shell boots and displays secure enclave title', (
     WidgetTester tester,
   ) async {
@@ -23,8 +56,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
-    // Verify that the title 'Memory OS' is displayed
-    expect(find.text('Memory OS'), findsOneWidget);
+    // Verify that the title is consistently formatted as 'MemoryOS'
+    expect(find.text('MemoryOS'), findsOneWidget);
+    expect(find.text('Memory OS'), findsNothing);
 
     // Verify that the timeline navigation item is displayed
     expect(find.text('Timeline'), findsOneWidget);
@@ -188,5 +222,40 @@ void main() {
     expect(find.text('Health Report'), findsNothing);
     expect(find.byTooltip('1 health event'), findsOneWidget);
     expect(find.byTooltip('Health report'), findsOneWidget);
+  });
+
+  testWidgets('bottom navigation clears Android system navigation inset', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const bottomInset = 48.0;
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) {
+          final mediaQuery = MediaQuery.of(context);
+          return MediaQuery(
+            data: mediaQuery.copyWith(
+              padding: const EdgeInsets.only(bottom: bottomInset),
+              viewPadding: const EdgeInsets.only(bottom: bottomInset),
+            ),
+            child: child!,
+          );
+        },
+        home: const ShellPage(),
+      ),
+    );
+    await tester.pump();
+
+    final navBarRect = tester.getRect(
+      find.byKey(const Key('shell-bottom-navigation-bar')),
+    );
+    final timelineLabelRect = tester.getRect(find.text('Timeline'));
+
+    expect(navBarRect.height, greaterThanOrEqualTo(64 + bottomInset));
+    expect(844 - timelineLabelRect.bottom, greaterThan(bottomInset));
   });
 }

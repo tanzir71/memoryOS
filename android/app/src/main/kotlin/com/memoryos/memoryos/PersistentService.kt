@@ -13,6 +13,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -48,6 +49,22 @@ class PersistentService : Service() {
         private const val ACTION_RESUME_LISTENING = "com.memoryos.memoryos.action.RESUME_LISTENING"
         private const val CAPTURE_STATUS_TTL_MS = 10_000L
 
+        private fun hasNativePersistentCollector(sharedPref: SharedPreferences): Boolean {
+            return sharedPref.getBoolean("toggle_location", false) ||
+                sharedPref.getBoolean("toggle_bluetooth", false) ||
+                sharedPref.getBoolean("toggle_photo", false)
+        }
+
+        private fun shouldShowPersistentStatus(sharedPref: SharedPreferences): Boolean {
+            return sharedPref.getBoolean("is_persistent", false) &&
+                hasNativePersistentCollector(sharedPref)
+        }
+
+        private fun replaceStatusNotification(context: Context) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(NOTIFICATION_ID, buildNotification(context))
+        }
+
         fun recordCapture(context: Context, source: String, title: String) {
             try {
                 val appContext = context.applicationContext
@@ -61,11 +78,14 @@ class PersistentService : Service() {
                     apply()
                 }
 
+                if (!shouldShowPersistentStatus(sharedPref)) {
+                    return
+                }
+
                 createNotificationChannel(appContext)
-                val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                notificationManager.notify(NOTIFICATION_ID, buildNotification(appContext))
+                replaceStatusNotification(appContext)
                 Handler(Looper.getMainLooper()).postDelayed({
-                    notificationManager.notify(NOTIFICATION_ID, buildNotification(appContext))
+                    replaceStatusNotification(appContext)
                 }, CAPTURE_STATUS_TTL_MS)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to update foreground status notification: ${e.message}", e)
@@ -127,7 +147,7 @@ class PersistentService : Service() {
                 .setContentTitle(if (isPaused) "MemoryOS is paused" else "MemoryOS is listening")
                 .setContentText(statusText(sharedPref))
                 .setSubText(activeCollectors(sharedPref))
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(R.drawable.ic_memory_os_notification)
                 .setContentIntent(pendingIntent)
                 .addAction(
                     if (isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
@@ -232,7 +252,6 @@ class PersistentService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel(this)
-        showNotification()
     }
 
     override fun onBind(intent: Intent?): IBinder? {
@@ -244,23 +263,45 @@ class PersistentService : Service() {
             ACTION_PAUSE_LISTENING -> {
                 setListeningPaused(true)
                 stopCollectors()
-                showNotification()
+                if (!showNotificationSafely("pause action")) return START_NOT_STICKY
                 return START_STICKY
             }
             ACTION_RESUME_LISTENING -> {
                 setListeningPaused(false)
-                showNotification()
+                if (!showNotificationSafely("resume action")) return START_NOT_STICKY
                 syncCollectors()
                 return START_STICKY
             }
         }
-        showNotification()
+        val sharedPref = getSharedPreferences("memoryos_prefs", Context.MODE_PRIVATE)
+        if (!shouldShowPersistentStatus(sharedPref)) {
+            Log.d(TAG, "Stopping PersistentService; no native collectors require foreground persistence.")
+            stopCollectors()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        if (!showNotificationSafely("start command")) return START_NOT_STICKY
         syncCollectors()
         return START_STICKY
     }
 
+    private fun showNotificationSafely(reason: String): Boolean {
+        return try {
+            showNotification()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Unable to start foreground notification during $reason: ${e.message}", e)
+            stopCollectors()
+            stopSelf()
+            false
+        }
+    }
+
     private fun showNotification() {
         val notification = buildNotification(this)
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancelAll()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             var foregroundType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
@@ -733,16 +774,13 @@ class PersistentService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val sharedPref = getSharedPreferences("memoryos_prefs", Context.MODE_PRIVATE)
-        val isPersistent = sharedPref.getBoolean("is_persistent", false)
+        val isPersistent = shouldShowPersistentStatus(sharedPref)
 
         Log.d(TAG, "onTaskRemoved called. isPersistent: $isPersistent")
 
         if (isPersistent) {
             try {
-                val restartIntent = Intent().apply {
-                    setClassName(packageName, "de.julianassmann.flutter_background.IsolateHolderService")
-                    action = "START"
-                }
+                val restartIntent = Intent(this, PersistentService::class.java)
 
                 val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
@@ -750,12 +788,11 @@ class PersistentService : Service() {
                     PendingIntent.FLAG_ONE_SHOT
                 }
 
-                val pendingIntent = PendingIntent.getService(
-                    this,
-                    999,
-                    restartIntent,
-                    flags
-                )
+                val pendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    PendingIntent.getForegroundService(this, 999, restartIntent, flags)
+                } else {
+                    PendingIntent.getService(this, 999, restartIntent, flags)
+                }
 
                 val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
                 val triggerTime = System.currentTimeMillis() + 800
@@ -765,7 +802,7 @@ class PersistentService : Service() {
                     triggerTime,
                     pendingIntent
                 )
-                Log.d(TAG, "Successfully scheduled restart of IsolateHolderService")
+                Log.d(TAG, "Successfully scheduled restart of PersistentService")
             } catch (e: Exception) {
                 Log.e(TAG, "Error scheduling restart of service: ${e.message}")
             }
