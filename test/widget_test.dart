@@ -138,7 +138,7 @@ void main() {
     expect(find.text('Permissions Onboarding Setup'), findsNothing);
   });
 
-  testWidgets('MemoryOSLogo defaults to black and white', (
+  testWidgets('MemoryOSLogo defaults to solid black', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -155,7 +155,6 @@ void main() {
     );
     final dynamic painter = customPaint.painter;
     expect(painter.color, Colors.black);
-    expect(painter.innerColor, Colors.white);
   });
 
   testWidgets('timeline header uses one overflow menu on narrow screens', (
