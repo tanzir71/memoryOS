@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
-
 class MemoryOSLogo extends StatelessWidget {
   const MemoryOSLogo({
     super.key,
     this.size = 24,
-    this.color = AppTheme.primary,
+    this.color = Colors.black,
     this.innerColor = Colors.white,
   });
 
@@ -22,10 +20,7 @@ class MemoryOSLogo extends StatelessWidget {
       child: SizedBox.square(
         dimension: size,
         child: CustomPaint(
-          painter: _MemoryOSLogoPainter(
-            color: color,
-            innerColor: innerColor,
-          ),
+          painter: _MemoryOSLogoPainter(color: color, innerColor: innerColor),
         ),
       ),
     );
@@ -33,10 +28,7 @@ class MemoryOSLogo extends StatelessWidget {
 }
 
 class _MemoryOSLogoPainter extends CustomPainter {
-  const _MemoryOSLogoPainter({
-    required this.color,
-    required this.innerColor,
-  });
+  const _MemoryOSLogoPainter({required this.color, required this.innerColor});
 
   final Color color;
   final Color innerColor;

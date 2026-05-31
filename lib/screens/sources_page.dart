@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/app_category_registry.dart';
 import '../services/capture_interval_policy.dart';
@@ -7,9 +8,16 @@ import '../services/database_service.dart';
 import '../theme/app_theme.dart';
 
 class SourcesPage extends StatefulWidget {
-  const SourcesPage({super.key, this.isActive = true});
+  const SourcesPage({
+    super.key,
+    this.isActive = true,
+    this.activeTabListenable,
+    this.tabIndex,
+  });
 
   final bool isActive;
+  final ValueListenable<int>? activeTabListenable;
+  final int? tabIndex;
 
   @override
   State<SourcesPage> createState() => _SourcesPageState();
@@ -22,6 +30,15 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
   bool _isBatteryOptimized = false;
   Timer? _batteryCheckTimer;
   AppCategoryRegistry _registry = AppCategoryRegistry.active;
+
+  bool get _isActive => _isActiveFor(widget);
+
+  bool _isActiveFor(SourcesPage page) {
+    final listenable = page.activeTabListenable;
+    final index = page.tabIndex;
+    if (listenable == null || index == null) return page.isActive;
+    return listenable.value == index;
+  }
 
   final List<Map<String, dynamic>> _sourceDefinitions = [
     {
@@ -71,6 +88,7 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    widget.activeTabListenable?.addListener(_handleActiveTabChanged);
     WidgetsBinding.instance.addObserver(this);
     // Add initial logs
     _logs.addAll([
@@ -83,7 +101,7 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
 
     // Subscribe to CaptureService real-time logStream!
     _logSubscription = CaptureService.instance.logStream.listen((log) {
-      if (mounted && widget.isActive) {
+      if (mounted && _isActive) {
         setState(() {
           _logs.add(log);
           if (_logs.length > 50) {
@@ -104,7 +122,7 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
       }
     });
 
-    if (widget.isActive) {
+    if (_isActive) {
       _checkBatteryStatus();
     }
     _loadAppRegistry();
@@ -114,7 +132,19 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(covariant SourcesPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.isActive && widget.isActive) {
+    final wasActive = _isActiveFor(oldWidget);
+    if (oldWidget.activeTabListenable != widget.activeTabListenable) {
+      oldWidget.activeTabListenable?.removeListener(_handleActiveTabChanged);
+      widget.activeTabListenable?.addListener(_handleActiveTabChanged);
+    }
+    if (!wasActive && _isActive) {
+      _checkBatteryStatus();
+    }
+    _syncBatteryCheckTimer();
+  }
+
+  void _handleActiveTabChanged() {
+    if (_isActive) {
       _checkBatteryStatus();
     }
     _syncBatteryCheckTimer();
@@ -122,13 +152,13 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && widget.isActive) {
+    if (state == AppLifecycleState.resumed && _isActive) {
       _checkBatteryStatus();
     }
   }
 
   void _syncBatteryCheckTimer() {
-    if (!widget.isActive) {
+    if (!_isActive) {
       _batteryCheckTimer?.cancel();
       _batteryCheckTimer = null;
       return;
@@ -172,6 +202,7 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    widget.activeTabListenable?.removeListener(_handleActiveTabChanged);
     WidgetsBinding.instance.removeObserver(this);
     _logSubscription?.cancel();
     _batteryCheckTimer?.cancel();
@@ -241,10 +272,12 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.black.withOpacity(0.04)),
+                  border: Border.all(
+                    color: Colors.black.withValues(alpha: 0.04),
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.02),
+                      color: Colors.black.withValues(alpha: 0.02),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
                     ),
@@ -307,8 +340,9 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
                           child: LinearProgressIndicator(
                             value: percentage,
                             minHeight: 8,
-                            backgroundColor: AppTheme.outlineVariant
-                                .withOpacity(0.5),
+                            backgroundColor: AppTheme.outlineVariant.withValues(
+                              alpha: 0.5,
+                            ),
                             valueColor: const AlwaysStoppedAnimation<Color>(
                               AppTheme.primary,
                             ),
@@ -333,10 +367,12 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
                 decoration: BoxDecoration(
                   color: AppTheme.secondaryContainer,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.primary.withOpacity(0.08)),
+                  border: Border.all(
+                    color: AppTheme.primary.withValues(alpha: 0.08),
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: AppTheme.primary.withOpacity(0.03),
+                      color: AppTheme.primary.withValues(alpha: 0.03),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -450,13 +486,13 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: isEnabled
-                      ? AppTheme.primary.withOpacity(0.15)
-                      : Colors.black.withOpacity(0.04),
+                      ? AppTheme.primary.withValues(alpha: 0.15)
+                      : Colors.black.withValues(alpha: 0.04),
                   width: isEnabled ? 1.5 : 1,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.01),
+                    color: Colors.black.withValues(alpha: 0.01),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   ),
@@ -473,7 +509,7 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
                           color: isEnabled
-                              ? AppTheme.primary.withOpacity(0.08)
+                              ? AppTheme.primary.withValues(alpha: 0.08)
                               : AppTheme.surfaceDim,
                           borderRadius: BorderRadius.circular(8),
                         ),
@@ -489,10 +525,10 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
                         scale: 0.75,
                         child: Switch(
                           value: isEnabled,
-                          activeColor: AppTheme.primary,
+                          activeThumbColor: AppTheme.primary,
                           inactiveThumbColor: AppTheme.onSurfaceVariant,
                           inactiveTrackColor: AppTheme.outlineVariant
-                              .withOpacity(0.5),
+                              .withValues(alpha: 0.5),
                           onChanged: (val) => _handleToggle(key, val),
                         ),
                       ),
@@ -594,7 +630,7 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
           decoration: BoxDecoration(
             color: const Color(0xFF161719), // Pitch Slate
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             boxShadow: const [
               BoxShadow(
                 color: Colors.black26,
@@ -1394,12 +1430,12 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
         color: const Color(0xFFFFF9E6),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppTheme.contextAmber.withOpacity(0.3),
+          color: AppTheme.contextAmber.withValues(alpha: 0.3),
           width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: AppTheme.contextAmber.withOpacity(0.04),
+            color: AppTheme.contextAmber.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1549,7 +1585,9 @@ class _SourcesPageState extends State<SourcesPage> with WidgetsBindingObserver {
                 decoration: BoxDecoration(
                   color: AppTheme.surfaceDim,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.black.withOpacity(0.04)),
+                  border: Border.all(
+                    color: Colors.black.withValues(alpha: 0.04),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

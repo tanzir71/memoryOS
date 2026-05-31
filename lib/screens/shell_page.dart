@@ -16,6 +16,62 @@ class ShellPage extends StatefulWidget {
 class _ShellPageState extends State<ShellPage> {
   int _currentIndex = 0;
   bool _isSyncing = false;
+  late final ValueNotifier<int> _activeTabIndex;
+  late final List<Widget?> _cachedPages;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeTabIndex = ValueNotifier<int>(_currentIndex);
+    _cachedPages = List<Widget?>.filled(4, null);
+    _ensurePageCached(_currentIndex);
+  }
+
+  @override
+  void dispose() {
+    _activeTabIndex.dispose();
+    super.dispose();
+  }
+
+  void _ensurePageCached(int index) {
+    _cachedPages[index] ??= switch (index) {
+      0 => TimelinePage(
+        key: const PageStorageKey('timeline'),
+        activeTabListenable: _activeTabIndex,
+        tabIndex: 0,
+      ),
+      1 => SummaryPage(
+        key: const PageStorageKey('summary'),
+        activeTabListenable: _activeTabIndex,
+        tabIndex: 1,
+      ),
+      2 => SourcesPage(
+        key: const PageStorageKey('sources'),
+        activeTabListenable: _activeTabIndex,
+        tabIndex: 2,
+      ),
+      3 => TrailsPage(
+        key: const PageStorageKey('trails'),
+        activeTabListenable: _activeTabIndex,
+        tabIndex: 3,
+      ),
+      _ => const SizedBox.shrink(),
+    };
+  }
+
+  Widget _pageSlot(int index) {
+    return _cachedPages[index] ??
+        SizedBox.shrink(key: PageStorageKey('tab-$index-placeholder'));
+  }
+
+  void _selectTab(int index) {
+    if (_currentIndex == index) return;
+    setState(() {
+      _currentIndex = index;
+      _ensurePageCached(index);
+    });
+    _activeTabIndex.value = index;
+  }
 
   void _triggerSync() {
     setState(() {
@@ -87,37 +143,26 @@ class _ShellPageState extends State<ShellPage> {
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
-          child: Container(color: Colors.black.withOpacity(0.05), height: 1.0),
+          child: Container(
+            color: Colors.black.withValues(alpha: 0.05),
+            height: 1.0,
+          ),
         ),
       ),
       body: IndexedStack(
         index: _currentIndex,
-        children: [
-          TimelinePage(
-            key: const PageStorageKey('timeline'),
-            isActive: _currentIndex == 0,
-          ),
-          SummaryPage(
-            key: const PageStorageKey('summary'),
-            isActive: _currentIndex == 1,
-          ),
-          SourcesPage(
-            key: const PageStorageKey('sources'),
-            isActive: _currentIndex == 2,
-          ),
-          TrailsPage(
-            key: const PageStorageKey('trails'),
-            isActive: _currentIndex == 3,
-          ),
-        ],
+        children: List.generate(_cachedPages.length, _pageSlot),
       ),
       // Stitch Custom Navigation Bar
       bottomNavigationBar: Container(
         key: const Key('shell-bottom-navigation-bar'),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.95),
+          color: Colors.white.withValues(alpha: 0.95),
           border: Border(
-            top: BorderSide(color: Colors.black.withOpacity(0.05), width: 1),
+            top: BorderSide(
+              color: Colors.black.withValues(alpha: 0.05),
+              width: 1,
+            ),
           ),
         ),
         child: Padding(
@@ -143,15 +188,11 @@ class _ShellPageState extends State<ShellPage> {
     final theme = Theme.of(context);
     final isActive = _currentIndex == index;
     final activeColor = AppTheme.primary;
-    final inactiveColor = AppTheme.onSurfaceVariant.withOpacity(0.6);
+    final inactiveColor = AppTheme.onSurfaceVariant.withValues(alpha: 0.6);
 
     return Expanded(
       child: InkWell(
-        onTap: () {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
+        onTap: () => _selectTab(index),
         borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),

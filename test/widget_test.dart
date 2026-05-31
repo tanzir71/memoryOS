@@ -12,6 +12,7 @@ import 'package:memoryos/screens/timeline_page.dart';
 import 'package:memoryos/services/app_category_registry.dart';
 import 'package:memoryos/services/capture_service.dart';
 import 'package:memoryos/services/database_service.dart';
+import 'package:memoryos/widgets/memory_os_logo.dart';
 
 void main() {
   testWidgets('MemoryOS Shell renders before native persistence responds', (
@@ -64,6 +65,97 @@ void main() {
     expect(find.text('Timeline'), findsOneWidget);
     expect(find.text('Sources'), findsOneWidget);
     expect(find.text('Threads'), findsOneWidget);
+  });
+
+  testWidgets('shell lazily builds and caches tab pages', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ShellPage()));
+    await tester.pump();
+
+    expect(find.text('Timeline'), findsOneWidget);
+    expect(find.text('Personal Insights', skipOffstage: false), findsNothing);
+    expect(find.text('Enclave Integration', skipOffstage: false), findsNothing);
+    expect(find.text('ASK LOCAL CONTEXT', skipOffstage: false), findsNothing);
+
+    await tester.tap(find.text('Insights'));
+    await tester.pump();
+    expect(find.text('Personal Insights'), findsOneWidget);
+
+    await tester.tap(find.text('Sources'));
+    await tester.pump();
+    expect(find.text('Enclave Integration'), findsOneWidget);
+
+    await tester.tap(find.text('Threads'));
+    await tester.pump();
+    expect(find.text('ASK LOCAL CONTEXT'), findsOneWidget);
+
+    await tester.tap(find.text('Timeline'));
+    await tester.pump();
+    expect(find.text('Personal Insights', skipOffstage: false), findsOneWidget);
+    expect(
+      find.text('Enclave Integration', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(find.text('ASK LOCAL CONTEXT', skipOffstage: false), findsOneWidget);
+  });
+
+  testWidgets('disabled clipboard source alone does not show setup banner', (
+    WidgetTester tester,
+  ) async {
+    final previousSourceToggles = Map<String, bool>.from(
+      CaptureService.instance.sourceToggles,
+    );
+    CaptureService.instance.sourceToggles.updateAll((_, _) => true);
+    CaptureService.instance.sourceToggles['reading'] = false;
+    addTearDown(() {
+      CaptureService.instance.sourceToggles
+        ..clear()
+        ..addAll(previousSourceToggles);
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TimelinePage(
+            initialNodes: [
+              MemoryNode(
+                timestamp: DateTime.now(),
+                title: 'Check-in',
+                content: 'Manual context check-in.',
+                source: 'document',
+                metadata: const {'isManual': true},
+                trail: 'none',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Permissions Onboarding Setup'), findsNothing);
+  });
+
+  testWidgets('MemoryOSLogo defaults to black and white', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: Center(child: MemoryOSLogo())),
+      ),
+    );
+
+    final customPaint = tester.widget<CustomPaint>(
+      find.descendant(
+        of: find.byType(MemoryOSLogo),
+        matching: find.byType(CustomPaint),
+      ),
+    );
+    final dynamic painter = customPaint.painter;
+    expect(painter.color, Colors.black);
+    expect(painter.innerColor, Colors.white);
   });
 
   testWidgets('timeline header uses one overflow menu on narrow screens', (

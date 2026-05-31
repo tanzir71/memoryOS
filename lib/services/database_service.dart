@@ -28,7 +28,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -39,8 +39,13 @@ class DatabaseService {
       await db.execute('DROP TABLE IF EXISTS memory_nodes');
       await db.execute('DROP TABLE IF EXISTS settings');
       await _createDB(db, newVersion);
-    } else if (oldVersion < 6) {
+      return;
+    }
+    if (oldVersion < 6) {
       await _addColumnIfMissing(db, 'memory_nodes', 'deleted_at TEXT');
+    }
+    if (oldVersion < 7) {
+      await _createIndexes(db);
     }
   }
 
@@ -65,6 +70,8 @@ class DatabaseService {
         value TEXT NOT NULL
       )
     ''');
+
+    await _createIndexes(db);
 
     // Pre-populate with beautiful high-fidelity mock data from the Stitch screens!
     await _prepopulateData(db);
@@ -214,7 +221,11 @@ class DatabaseService {
   Future<List<MemoryNode>> fetchAllNodes() async {
     final db = await instance.database;
     await purgeExpiredDeletedNodes();
-    final result = await db.query('memory_nodes', orderBy: 'timestamp DESC');
+    final result = await db.query(
+      'memory_nodes',
+      where: 'deleted_at IS NULL',
+      orderBy: 'timestamp DESC',
+    );
     return _visibleNodes(result.map((json) => MemoryNode.fromMap(json)));
   }
 
@@ -237,7 +248,7 @@ class DatabaseService {
 
     final result = await db.query(
       'memory_nodes',
-      where: 'timestamp BETWEEN ? AND ?',
+      where: 'deleted_at IS NULL AND timestamp BETWEEN ? AND ?',
       whereArgs: [startOfDay, endOfDay],
       orderBy: 'timestamp DESC',
     );
@@ -249,7 +260,7 @@ class DatabaseService {
     await purgeExpiredDeletedNodes();
     final result = await db.query(
       'memory_nodes',
-      where: 'trail = ?',
+      where: 'deleted_at IS NULL AND trail = ?',
       whereArgs: [trail],
       orderBy: 'timestamp DESC',
     );
@@ -261,7 +272,7 @@ class DatabaseService {
     await purgeExpiredDeletedNodes();
     final result = await db.query(
       'memory_nodes',
-      where: 'title LIKE ? OR content LIKE ?',
+      where: 'deleted_at IS NULL AND (title LIKE ? OR content LIKE ?)',
       whereArgs: ['%$query%', '%$query%'],
       orderBy: 'timestamp DESC',
     );
@@ -482,6 +493,25 @@ class DatabaseService {
     if (!exists) {
       await db.execute('ALTER TABLE $table ADD COLUMN $columnDefinition');
     }
+  }
+
+  Future<void> _createIndexes(Database db) async {
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_memory_nodes_timestamp
+      ON memory_nodes(timestamp DESC)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_memory_nodes_trail_timestamp
+      ON memory_nodes(trail, timestamp DESC)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_memory_nodes_source_timestamp
+      ON memory_nodes(source, timestamp DESC)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_memory_nodes_deleted_at
+      ON memory_nodes(deleted_at)
+    ''');
   }
 
   void _emitChange() {

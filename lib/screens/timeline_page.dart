@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -8,7 +9,6 @@ import '../models/memory_node.dart';
 import '../services/capture_interval_policy.dart';
 import '../services/capture_metadata.dart';
 import '../services/database_service.dart';
-import '../services/export_period.dart';
 import '../services/capture_service.dart';
 import '../services/health_timeline.dart';
 import '../services/location_metadata.dart';
@@ -18,10 +18,18 @@ import '../theme/app_theme.dart';
 enum _TimelineHeaderAction { recoverDeleted, deleteDayMemories }
 
 class TimelinePage extends StatefulWidget {
-  const TimelinePage({super.key, this.isActive = true, this.initialNodes});
+  const TimelinePage({
+    super.key,
+    this.isActive = true,
+    this.initialNodes,
+    this.activeTabListenable,
+    this.tabIndex,
+  });
 
   final bool isActive;
   final List<MemoryNode>? initialNodes;
+  final ValueListenable<int>? activeTabListenable;
+  final int? tabIndex;
 
   @override
   State<TimelinePage> createState() => _TimelinePageState();
@@ -62,9 +70,33 @@ class _TimelinePageState extends State<TimelinePage> {
   };
   bool _showPermissionsBanner = false;
 
+  bool get _isActive => _isActiveFor(widget);
+
+  bool _isActiveFor(TimelinePage page) {
+    final listenable = page.activeTabListenable;
+    final index = page.tabIndex;
+    if (listenable == null || index == null) return page.isActive;
+    return listenable.value == index;
+  }
+
+  bool _hasMissingRequiredPermission(Map<String, bool> permissions) {
+    const requiredPermissions = [
+      'voice_note',
+      'location',
+      'calendar',
+      'notification',
+      'photo',
+      'bluetooth',
+      'background_listening',
+      'battery_optimization',
+    ];
+    return requiredPermissions.any((key) => !(permissions[key] ?? false));
+  }
+
   @override
   void initState() {
     super.initState();
+    widget.activeTabListenable?.addListener(_handleActiveTabChanged);
     _audioPlayer = AudioPlayer();
 
     // Bind playback state listeners
@@ -89,13 +121,15 @@ class _TimelinePageState extends State<TimelinePage> {
       if (_activeNodeId == null && _nodes.isNotEmpty) {
         _activeNodeId = _nodes.first.id;
       }
-    } else {
+    } else if (_isActive) {
       _loadNodes();
     }
-    _checkAllPermissions();
+    if (_isActive) {
+      _checkAllPermissions();
+    }
     _databaseChangesSubscription = DatabaseService.instance.changes.listen((_) {
       if (mounted &&
-          widget.isActive &&
+          _isActive &&
           !_isRecording &&
           widget.initialNodes == null) {
         _loadNodes();
@@ -107,6 +141,11 @@ class _TimelinePageState extends State<TimelinePage> {
   @override
   void didUpdateWidget(covariant TimelinePage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final wasActive = _isActiveFor(oldWidget);
+    if (oldWidget.activeTabListenable != widget.activeTabListenable) {
+      oldWidget.activeTabListenable?.removeListener(_handleActiveTabChanged);
+      widget.activeTabListenable?.addListener(_handleActiveTabChanged);
+    }
     if (oldWidget.initialNodes != widget.initialNodes &&
         widget.initialNodes != null) {
       setState(() {
@@ -116,17 +155,25 @@ class _TimelinePageState extends State<TimelinePage> {
           _activeNodeId = _nodes.first.id;
         }
       });
-    } else if (!oldWidget.isActive &&
-        widget.isActive &&
-        widget.initialNodes == null) {
+    } else if (!wasActive && _isActive && widget.initialNodes == null) {
       _loadNodes();
       _checkAllPermissions();
     }
     _syncRefreshTimer();
   }
 
+  void _handleActiveTabChanged() {
+    if (_isActive) {
+      if (widget.initialNodes == null) {
+        _loadNodes();
+      }
+      _checkAllPermissions();
+    }
+    _syncRefreshTimer();
+  }
+
   void _syncRefreshTimer() {
-    if (!widget.isActive) {
+    if (!_isActive) {
       _refreshTimer?.cancel();
       _refreshTimer = null;
       return;
@@ -135,7 +182,7 @@ class _TimelinePageState extends State<TimelinePage> {
 
     _refreshTimer = Timer.periodic(uiRefreshInterval, (timer) {
       if (mounted &&
-          widget.isActive &&
+          _isActive &&
           !_isRecording &&
           widget.initialNodes == null) {
         _loadNodes();
@@ -146,6 +193,7 @@ class _TimelinePageState extends State<TimelinePage> {
 
   @override
   void dispose() {
+    widget.activeTabListenable?.removeListener(_handleActiveTabChanged);
     _refreshTimer?.cancel();
     _databaseChangesSubscription?.cancel();
     _recordingTimer?.cancel();
@@ -698,7 +746,7 @@ class _TimelinePageState extends State<TimelinePage> {
                                 color: AppTheme.surfaceDim,
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: Colors.black.withOpacity(0.04),
+                                  color: Colors.black.withValues(alpha: 0.04),
                                 ),
                               ),
                               child: Row(
@@ -809,7 +857,7 @@ class _TimelinePageState extends State<TimelinePage> {
 
     if (mounted) {
       setState(() {
-        _permissionsGranted = {
+        final permissions = {
           'voice_note': mic,
           'location': loc,
           'calendar': cal,
@@ -820,17 +868,8 @@ class _TimelinePageState extends State<TimelinePage> {
           'background_listening': bgListening,
           'battery_optimization': batteryOpt,
         };
-        // Show banner if any permission is missing
-        _showPermissionsBanner =
-            !mic ||
-            !loc ||
-            !cal ||
-            !notif ||
-            !photo ||
-            !bluetooth ||
-            !reading ||
-            !bgListening ||
-            !batteryOpt;
+        _permissionsGranted = permissions;
+        _showPermissionsBanner = _hasMissingRequiredPermission(permissions);
       });
     }
   }
@@ -929,7 +968,7 @@ class _TimelinePageState extends State<TimelinePage> {
                       _buildPermissionRow(
                         'reading',
                         'Clipboard Snippets',
-                        'Enables reading from clipboard to save snippets as "reading" entries.',
+                        'Passively reads clipboard text when enabled; Android may show clipboard access notices during polling.',
                         Icons.content_paste,
                         setModalState,
                       ),
@@ -997,7 +1036,7 @@ class _TimelinePageState extends State<TimelinePage> {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: isGranted
-                  ? AppTheme.primary.withOpacity(0.08)
+                  ? AppTheme.primary.withValues(alpha: 0.08)
                   : AppTheme.surfaceDim,
               borderRadius: BorderRadius.circular(8),
             ),
@@ -1034,7 +1073,7 @@ class _TimelinePageState extends State<TimelinePage> {
             style: TextButton.styleFrom(
               backgroundColor: isGranted
                   ? AppTheme.contextGreenContainer
-                  : AppTheme.primary.withOpacity(0.08),
+                  : AppTheme.primary.withValues(alpha: 0.08),
               foregroundColor: isGranted
                   ? AppTheme.contextGreen
                   : AppTheme.primary,
@@ -1050,8 +1089,9 @@ class _TimelinePageState extends State<TimelinePage> {
                         .requestPermission(source);
                     setModalState(() {
                       _permissionsGranted[source] = granted;
-                      _showPermissionsBanner = !_permissionsGranted.values
-                          .every((v) => v);
+                      _showPermissionsBanner = _hasMissingRequiredPermission(
+                        _permissionsGranted,
+                      );
                     });
                     _checkAllPermissions();
 
@@ -1137,7 +1177,9 @@ class _TimelinePageState extends State<TimelinePage> {
                 decoration: BoxDecoration(
                   color: AppTheme.surfaceDim,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.black.withOpacity(0.04)),
+                  border: Border.all(
+                    color: Colors.black.withValues(alpha: 0.04),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1245,7 +1287,7 @@ class _TimelinePageState extends State<TimelinePage> {
       decoration: BoxDecoration(
         color: AppTheme.secondaryContainer,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.primary.withOpacity(0.12)),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.12)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1273,7 +1315,7 @@ class _TimelinePageState extends State<TimelinePage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'For everyday context reconstruction, MemoryOS runs strictly offline and needs native device streams. Some permissions are not yet configured.',
+            'For everyday context reconstruction, MemoryOS runs strictly offline and needs native device streams. Some required native permissions are not yet configured.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: AppTheme.onSurfaceVariant,
               height: 1.35,
@@ -1543,8 +1585,8 @@ class _TimelinePageState extends State<TimelinePage> {
                                 width: 6,
                                 height: isCenter ? 50.0 : 25.0,
                                 decoration: BoxDecoration(
-                                  color: AppTheme.primary.withOpacity(
-                                    isCenter ? 1.0 : 0.4,
+                                  color: AppTheme.primary.withValues(
+                                    alpha: isCenter ? 1.0 : 0.4,
                                   ),
                                   borderRadius: BorderRadius.circular(3),
                                 ),
@@ -1952,7 +1994,9 @@ class _TimelinePageState extends State<TimelinePage> {
                         Icon(
                           Icons.hourglass_empty,
                           size: 48,
-                          color: AppTheme.onSurfaceVariant.withOpacity(0.4),
+                          color: AppTheme.onSurfaceVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                         const SizedBox(height: 12),
                         Text(
@@ -2000,7 +2044,7 @@ class _TimelinePageState extends State<TimelinePage> {
           left: 0,
           right: 0,
           child: Container(
-            color: AppTheme.background.withOpacity(0.9),
+            color: AppTheme.background.withValues(alpha: 0.9),
             height: 80,
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: ListView.builder(
@@ -2051,7 +2095,7 @@ class _TimelinePageState extends State<TimelinePage> {
                     side: BorderSide(
                       color: isSelected
                           ? AppTheme.primary
-                          : AppTheme.outlineVariant.withOpacity(0.5),
+                          : AppTheme.outlineVariant.withValues(alpha: 0.5),
                     ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -2232,7 +2276,7 @@ class _TimelinePageState extends State<TimelinePage> {
                   boxShadow: isActive
                       ? [
                           BoxShadow(
-                            color: AppTheme.primary.withOpacity(0.15),
+                            color: AppTheme.primary.withValues(alpha: 0.15),
                             blurRadius: 8,
                             spreadRadius: 2,
                           ),
@@ -2265,15 +2309,15 @@ class _TimelinePageState extends State<TimelinePage> {
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: isActive
-                          ? AppTheme.primary.withOpacity(0.3)
-                          : Colors.black.withOpacity(0.04),
+                          ? AppTheme.primary.withValues(alpha: 0.3)
+                          : Colors.black.withValues(alpha: 0.04),
                       width: isActive ? 1.5 : 1,
                     ),
                     boxShadow: [
                       BoxShadow(
                         color: isActive
-                            ? Colors.black.withOpacity(0.06)
-                            : Colors.black.withOpacity(0.03),
+                            ? Colors.black.withValues(alpha: 0.06)
+                            : Colors.black.withValues(alpha: 0.03),
                         blurRadius: isActive ? 16 : 8,
                         offset: const Offset(0, 4),
                       ),
@@ -2308,8 +2352,9 @@ class _TimelinePageState extends State<TimelinePage> {
                                   child: Icon(
                                     Icons.edit_outlined,
                                     size: 16,
-                                    color: AppTheme.onSurfaceVariant
-                                        .withOpacity(0.4),
+                                    color: AppTheme.onSurfaceVariant.withValues(
+                                      alpha: 0.4,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -2516,6 +2561,7 @@ class _TimelinePageState extends State<TimelinePage> {
                           }
                         } else {
                           await _audioPlayer?.stop();
+                          if (!mounted) return;
                           setState(() {
                             _playingNodeId = node.id;
                             _isPlaying = true;
@@ -2523,6 +2569,7 @@ class _TimelinePageState extends State<TimelinePage> {
                           await _audioPlayer?.play(DeviceFileSource(filePath));
                         }
                       } catch (e) {
+                        if (!mounted || !context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Error playing audio: $e'),
@@ -2549,7 +2596,7 @@ class _TimelinePageState extends State<TimelinePage> {
                             decoration: BoxDecoration(
                               color: isCurrentPlayingNode
                                   ? AppTheme.primary
-                                  : AppTheme.primary.withOpacity(0.4),
+                                  : AppTheme.primary.withValues(alpha: 0.4),
                               borderRadius: BorderRadius.circular(1),
                             ),
                           );
@@ -2567,7 +2614,9 @@ class _TimelinePageState extends State<TimelinePage> {
                 decoration: BoxDecoration(
                   color: AppTheme.surfaceDim,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.black.withOpacity(0.03)),
+                  border: Border.all(
+                    color: Colors.black.withValues(alpha: 0.03),
+                  ),
                 ),
                 child: Text(
                   '"${node.content}"',
@@ -2616,7 +2665,7 @@ class _TimelinePageState extends State<TimelinePage> {
               decoration: BoxDecoration(
                 color: AppTheme.surfaceDim,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.black.withOpacity(0.05)),
+                border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
               ),
               child: details.isEmpty
                   ? Text(
@@ -2639,7 +2688,7 @@ class _TimelinePageState extends State<TimelinePage> {
                             color: AppTheme.surface,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                              color: Colors.black.withOpacity(0.04),
+                              color: Colors.black.withValues(alpha: 0.04),
                             ),
                           ),
                           child: Column(
@@ -2701,7 +2750,9 @@ class _TimelinePageState extends State<TimelinePage> {
                     decoration: BoxDecoration(
                       color: AppTheme.primaryContainer,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.black.withOpacity(0.05)),
+                      border: Border.all(
+                        color: Colors.black.withValues(alpha: 0.05),
+                      ),
                     ),
                     alignment: Alignment.center,
                     child: Text(
@@ -2719,7 +2770,7 @@ class _TimelinePageState extends State<TimelinePage> {
                         color: AppTheme.surfaceDim,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: Colors.black.withOpacity(0.03),
+                          color: Colors.black.withValues(alpha: 0.03),
                         ),
                       ),
                       child: Column(
@@ -2841,9 +2892,9 @@ class _TimelinePageState extends State<TimelinePage> {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: AppTheme.primary.withOpacity(0.05),
+                        color: AppTheme.primary.withValues(alpha: 0.05),
                         border: Border.all(
-                          color: AppTheme.primary.withOpacity(0.1),
+                          color: AppTheme.primary.withValues(alpha: 0.1),
                         ),
                         borderRadius: BorderRadius.circular(12),
                       ),

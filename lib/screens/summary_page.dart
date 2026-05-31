@@ -1,19 +1,27 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import '../models/memory_node.dart';
 import '../services/capture_interval_policy.dart';
 import '../services/database_service.dart';
-import '../services/export_period.dart';
 import '../services/insight_aggregator.dart';
 import '../services/report_download_service.dart';
 import '../theme/app_theme.dart';
 
 class SummaryPage extends StatefulWidget {
-  const SummaryPage({super.key, this.isActive = true, this.initialNodes});
+  const SummaryPage({
+    super.key,
+    this.isActive = true,
+    this.initialNodes,
+    this.activeTabListenable,
+    this.tabIndex,
+  });
 
   final bool isActive;
   final List<MemoryNode>? initialNodes;
+  final ValueListenable<int>? activeTabListenable;
+  final int? tabIndex;
 
   @override
   State<SummaryPage> createState() => _SummaryPageState();
@@ -28,20 +36,29 @@ class _SummaryPageState extends State<SummaryPage> {
   Timer? _refreshTimer;
   StreamSubscription<void>? _databaseChangesSubscription;
 
+  bool get _isActive => _isActiveFor(widget);
+
+  bool _isActiveFor(SummaryPage page) {
+    final listenable = page.activeTabListenable;
+    final index = page.tabIndex;
+    if (listenable == null || index == null) return page.isActive;
+    return listenable.value == index;
+  }
+
   @override
   void initState() {
     super.initState();
+    widget.activeTabListenable?.addListener(_handleActiveTabChanged);
     if (widget.initialNodes != null) {
       _nodes = widget.initialNodes!;
       _isLoading = false;
-    } else {
+    } else if (_isActive) {
       DatabaseService.instance.loadAppCategoryRegistry().then((_) {
         if (mounted) _loadNodes();
       });
-      _loadNodes();
     }
     _databaseChangesSubscription = DatabaseService.instance.changes.listen((_) {
-      if (mounted && widget.isActive && widget.initialNodes == null) {
+      if (mounted && _isActive && widget.initialNodes == null) {
         _loadNodes();
       }
     });
@@ -51,22 +68,32 @@ class _SummaryPageState extends State<SummaryPage> {
   @override
   void didUpdateWidget(covariant SummaryPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final wasActive = _isActiveFor(oldWidget);
+    if (oldWidget.activeTabListenable != widget.activeTabListenable) {
+      oldWidget.activeTabListenable?.removeListener(_handleActiveTabChanged);
+      widget.activeTabListenable?.addListener(_handleActiveTabChanged);
+    }
     if (oldWidget.initialNodes != widget.initialNodes &&
         widget.initialNodes != null) {
       setState(() {
         _nodes = widget.initialNodes!;
         _isLoading = false;
       });
-    } else if (!oldWidget.isActive &&
-        widget.isActive &&
-        widget.initialNodes == null) {
+    } else if (!wasActive && _isActive && widget.initialNodes == null) {
+      _loadNodes();
+    }
+    _syncRefreshTimer();
+  }
+
+  void _handleActiveTabChanged() {
+    if (_isActive && widget.initialNodes == null) {
       _loadNodes();
     }
     _syncRefreshTimer();
   }
 
   void _syncRefreshTimer() {
-    if (!widget.isActive) {
+    if (!_isActive) {
       _refreshTimer?.cancel();
       _refreshTimer = null;
       return;
@@ -74,7 +101,7 @@ class _SummaryPageState extends State<SummaryPage> {
     if (_refreshTimer != null) return;
 
     _refreshTimer = Timer.periodic(uiRefreshInterval, (timer) {
-      if (mounted && widget.isActive && widget.initialNodes == null) {
+      if (mounted && _isActive && widget.initialNodes == null) {
         _loadNodes();
       }
     });
@@ -82,6 +109,7 @@ class _SummaryPageState extends State<SummaryPage> {
 
   @override
   void dispose() {
+    widget.activeTabListenable?.removeListener(_handleActiveTabChanged);
     _refreshTimer?.cancel();
     _databaseChangesSubscription?.cancel();
     super.dispose();
@@ -346,7 +374,7 @@ class _SummaryPageState extends State<SummaryPage> {
                 color: AppTheme.surfaceDim,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: AppTheme.outlineVariant.withOpacity(0.5),
+                  color: AppTheme.outlineVariant.withValues(alpha: 0.5),
                 ),
               ),
               padding: const EdgeInsets.all(4),
@@ -370,15 +398,15 @@ class _SummaryPageState extends State<SummaryPage> {
                           borderRadius: BorderRadius.circular(8),
                           border: isSelected
                               ? Border.all(
-                                  color: AppTheme.outlineVariant.withOpacity(
-                                    0.3,
+                                  color: AppTheme.outlineVariant.withValues(
+                                    alpha: 0.3,
                                   ),
                                 )
                               : null,
                           boxShadow: isSelected
                               ? [
                                   BoxShadow(
-                                    color: Colors.black.withOpacity(0.04),
+                                    color: Colors.black.withValues(alpha: 0.04),
                                     blurRadius: 4,
                                     offset: const Offset(0, 2),
                                   ),
@@ -412,10 +440,12 @@ class _SummaryPageState extends State<SummaryPage> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.outlineVariant.withOpacity(0.6)),
+            border: Border.all(
+              color: AppTheme.outlineVariant.withValues(alpha: 0.6),
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.02),
+                color: Colors.black.withValues(alpha: 0.02),
                 blurRadius: 16,
                 offset: const Offset(0, 8),
               ),
@@ -462,7 +492,7 @@ class _SummaryPageState extends State<SummaryPage> {
                 ),
               ),
               Divider(
-                color: AppTheme.outlineVariant.withOpacity(0.5),
+                color: AppTheme.outlineVariant.withValues(alpha: 0.5),
                 height: 1,
               ),
 
@@ -668,14 +698,16 @@ class _SummaryPageState extends State<SummaryPage> {
                     decoration: BoxDecoration(
                       color: AppTheme.surfaceDim,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.black.withOpacity(0.03)),
+                      border: Border.all(
+                        color: Colors.black.withValues(alpha: 0.03),
+                      ),
                     ),
                     child: Text(
                       '"$body"',
                       style: theme.textTheme.bodyLarge?.copyWith(
                         fontSize: 13,
                         fontStyle: FontStyle.italic,
-                        color: AppTheme.primary.withOpacity(0.8),
+                        color: AppTheme.primary.withValues(alpha: 0.8),
                       ),
                     ),
                   )
@@ -694,7 +726,9 @@ class _SummaryPageState extends State<SummaryPage> {
                     decoration: BoxDecoration(
                       color: const Color(0xFF0F1A2A), // Dark blueprint blue
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.1),
+                      ),
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
@@ -772,16 +806,16 @@ class BlueprintPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final gridPaint = Paint()
-      ..color = Colors.blue.withOpacity(0.15)
+      ..color = Colors.blue.withValues(alpha: 0.15)
       ..strokeWidth = 1;
 
     final linePaint = Paint()
-      ..color = Colors.lightBlueAccent.withOpacity(0.8)
+      ..color = Colors.lightBlueAccent.withValues(alpha: 0.8)
       ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke;
 
     final fillPaint = Paint()
-      ..color = Colors.lightBlueAccent.withOpacity(0.2)
+      ..color = Colors.lightBlueAccent.withValues(alpha: 0.2)
       ..style = PaintingStyle.fill;
 
     // Draw grid background
@@ -808,7 +842,7 @@ class BlueprintPainter extends CustomPainter {
       Offset(size.width * 0.4, size.height * 0.5),
       45,
       Paint()
-        ..color = Colors.lightBlueAccent.withOpacity(0.3)
+        ..color = Colors.lightBlueAccent.withValues(alpha: 0.3)
         ..strokeWidth = 1
         ..style = PaintingStyle.stroke,
     );

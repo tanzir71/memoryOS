@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/memory_node.dart';
@@ -9,9 +10,16 @@ import '../services/database_service.dart';
 import '../theme/app_theme.dart';
 
 class TrailsPage extends StatefulWidget {
-  const TrailsPage({super.key, this.isActive = true});
+  const TrailsPage({
+    super.key,
+    this.isActive = true,
+    this.activeTabListenable,
+    this.tabIndex,
+  });
 
   final bool isActive;
+  final ValueListenable<int>? activeTabListenable;
+  final int? tabIndex;
 
   @override
   State<TrailsPage> createState() => _TrailsPageState();
@@ -25,6 +33,15 @@ class _TrailsPageState extends State<TrailsPage> {
   bool _isThreadsLoading = true;
   Timer? _refreshTimer;
   StreamSubscription<void>? _databaseChangesSubscription;
+
+  bool get _isActive => _isActiveFor(widget);
+
+  bool _isActiveFor(TrailsPage page) {
+    final listenable = page.activeTabListenable;
+    final index = page.tabIndex;
+    if (listenable == null || index == null) return page.isActive;
+    return listenable.value == index;
+  }
 
   // Search/AI Q&A Controller
   final TextEditingController _queryController = TextEditingController();
@@ -141,9 +158,12 @@ class _TrailsPageState extends State<TrailsPage> {
   @override
   void initState() {
     super.initState();
-    _loadDynamicThreads();
+    widget.activeTabListenable?.addListener(_handleActiveTabChanged);
+    if (_isActive) {
+      _loadDynamicThreads();
+    }
     _databaseChangesSubscription = DatabaseService.instance.changes.listen((_) {
-      if (mounted && widget.isActive) {
+      if (mounted && _isActive) {
         _loadDynamicThreads(isSilent: true);
       }
     });
@@ -153,14 +173,26 @@ class _TrailsPageState extends State<TrailsPage> {
   @override
   void didUpdateWidget(covariant TrailsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.isActive && widget.isActive) {
+    final wasActive = _isActiveFor(oldWidget);
+    if (oldWidget.activeTabListenable != widget.activeTabListenable) {
+      oldWidget.activeTabListenable?.removeListener(_handleActiveTabChanged);
+      widget.activeTabListenable?.addListener(_handleActiveTabChanged);
+    }
+    if (!wasActive && _isActive) {
+      _loadDynamicThreads(isSilent: true);
+    }
+    _syncRefreshTimer();
+  }
+
+  void _handleActiveTabChanged() {
+    if (_isActive) {
       _loadDynamicThreads(isSilent: true);
     }
     _syncRefreshTimer();
   }
 
   void _syncRefreshTimer() {
-    if (!widget.isActive) {
+    if (!_isActive) {
       _refreshTimer?.cancel();
       _refreshTimer = null;
       return;
@@ -168,7 +200,7 @@ class _TrailsPageState extends State<TrailsPage> {
     if (_refreshTimer != null) return;
 
     _refreshTimer = Timer.periodic(uiRefreshInterval, (timer) {
-      if (mounted && widget.isActive) {
+      if (mounted && _isActive) {
         _loadDynamicThreads(isSilent: true);
       }
     });
@@ -176,6 +208,7 @@ class _TrailsPageState extends State<TrailsPage> {
 
   @override
   void dispose() {
+    widget.activeTabListenable?.removeListener(_handleActiveTabChanged);
     _refreshTimer?.cancel();
     _databaseChangesSubscription?.cancel();
     _queryController.dispose();
@@ -354,7 +387,7 @@ class _TrailsPageState extends State<TrailsPage> {
                         side: BorderSide(
                           color: isSelected
                               ? AppTheme.primary
-                              : AppTheme.outlineVariant.withOpacity(0.4),
+                              : AppTheme.outlineVariant.withValues(alpha: 0.4),
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
@@ -367,7 +400,7 @@ class _TrailsPageState extends State<TrailsPage> {
         ),
 
         // Divider
-        Container(height: 1, color: Colors.black.withOpacity(0.04)),
+        Container(height: 1, color: Colors.black.withValues(alpha: 0.04)),
 
         // Main content scroll area
         Expanded(
@@ -385,10 +418,12 @@ class _TrailsPageState extends State<TrailsPage> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.black.withOpacity(0.04)),
+                  border: Border.all(
+                    color: Colors.black.withValues(alpha: 0.04),
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.015),
+                      color: Colors.black.withValues(alpha: 0.015),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -424,7 +459,7 @@ class _TrailsPageState extends State<TrailsPage> {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: activeColor.withOpacity(0.08),
+                            color: activeColor.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
@@ -475,10 +510,12 @@ class _TrailsPageState extends State<TrailsPage> {
                 decoration: BoxDecoration(
                   color: AppTheme.secondaryContainer,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.primary.withOpacity(0.12)),
+                  border: Border.all(
+                    color: AppTheme.primary.withValues(alpha: 0.12),
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: AppTheme.primary.withOpacity(0.02),
+                      color: AppTheme.primary.withValues(alpha: 0.02),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -523,8 +560,8 @@ class _TrailsPageState extends State<TrailsPage> {
                               hintText:
                                   'e.g., Why does the inverter breaker trip?',
                               hintStyle: TextStyle(
-                                color: AppTheme.onSurfaceVariant.withOpacity(
-                                  0.5,
+                                color: AppTheme.onSurfaceVariant.withValues(
+                                  alpha: 0.5,
                                 ),
                               ),
                               filled: true,
@@ -596,7 +633,7 @@ class _TrailsPageState extends State<TrailsPage> {
                           color: AppTheme.surfaceDim,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: Colors.black.withOpacity(0.04),
+                            color: Colors.black.withValues(alpha: 0.04),
                           ),
                         ),
                         child: Column(
@@ -668,7 +705,9 @@ class _TrailsPageState extends State<TrailsPage> {
                         Icon(
                           Icons.hourglass_empty,
                           size: 36,
-                          color: AppTheme.onSurfaceVariant.withOpacity(0.3),
+                          color: AppTheme.onSurfaceVariant.withValues(
+                            alpha: 0.3,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Text(
@@ -793,10 +832,10 @@ class _TrailsPageState extends State<TrailsPage> {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: AppTheme.primary.withOpacity(0.04),
+                      color: AppTheme.primary.withValues(alpha: 0.04),
                       borderRadius: BorderRadius.circular(4),
                       border: Border.all(
-                        color: AppTheme.primary.withOpacity(0.08),
+                        color: AppTheme.primary.withValues(alpha: 0.08),
                       ),
                     ),
                     child: Text(
