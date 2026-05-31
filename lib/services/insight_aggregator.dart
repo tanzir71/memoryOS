@@ -140,7 +140,7 @@ String _joinHuman(List<String> values) {
   return '${values.take(values.length - 1).join(", ")}, and ${values.last}';
 }
 
-String _sourceLabel(String source) {
+String insightSourceLabel(String source) {
   switch (source) {
     case 'voice_note':
       return 'voice';
@@ -162,9 +162,13 @@ String _sourceLabel(String source) {
 }
 
 Iterable<String> _sourceLabelsForNode(MemoryNode node) sync* {
-  yield _sourceLabel(node.source);
+  yield insightSourceLabel(node.source);
   final category = node.metadata['registryCategory']?.toString().trim();
   if (category != null && category.isNotEmpty) {
     yield category;
   }
+}
+
+List<String> sourceLabelsForInsightNode(MemoryNode node) {
+  return _sourceLabelsForNode(node).toSet().toList()..sort();
 }

@@ -6,6 +6,7 @@ import '../models/memory_node.dart';
 import '../services/capture_interval_policy.dart';
 import '../services/database_service.dart';
 import '../services/insight_aggregator.dart';
+import '../services/insight_index_service.dart';
 import '../services/report_download_service.dart';
 import '../theme/app_theme.dart';
 
@@ -32,6 +33,13 @@ class _SummaryPageState extends State<SummaryPage> {
   String _selectedRange = 'Last 7 Days';
 
   List<MemoryNode> _nodes = [];
+  InsightSnapshot _snapshot = const InsightSnapshot(
+    filters: ['All'],
+    items: [],
+    isIndexing: false,
+    indexedNodeCount: 0,
+    totalNodeCount: 0,
+  );
   bool _isLoading = true;
   Timer? _refreshTimer;
   StreamSubscription<void>? _databaseChangesSubscription;
@@ -54,12 +62,12 @@ class _SummaryPageState extends State<SummaryPage> {
       _isLoading = false;
     } else if (_isActive) {
       DatabaseService.instance.loadAppCategoryRegistry().then((_) {
-        if (mounted) _loadNodes();
+        if (mounted) _loadSnapshot();
       });
     }
     _databaseChangesSubscription = DatabaseService.instance.changes.listen((_) {
       if (mounted && _isActive && widget.initialNodes == null) {
-        _loadNodes();
+        _loadSnapshot(isSilent: true);
       }
     });
     _syncRefreshTimer();
@@ -80,14 +88,14 @@ class _SummaryPageState extends State<SummaryPage> {
         _isLoading = false;
       });
     } else if (!wasActive && _isActive && widget.initialNodes == null) {
-      _loadNodes();
+      _loadSnapshot();
     }
     _syncRefreshTimer();
   }
 
   void _handleActiveTabChanged() {
     if (_isActive && widget.initialNodes == null) {
-      _loadNodes();
+      _loadSnapshot(isSilent: true);
     }
     _syncRefreshTimer();
   }
@@ -102,7 +110,7 @@ class _SummaryPageState extends State<SummaryPage> {
 
     _refreshTimer = Timer.periodic(uiRefreshInterval, (timer) {
       if (mounted && _isActive && widget.initialNodes == null) {
-        _loadNodes();
+        _loadSnapshot(isSilent: true);
       }
     });
   }
@@ -115,12 +123,21 @@ class _SummaryPageState extends State<SummaryPage> {
     super.dispose();
   }
 
-  Future<void> _loadNodes() async {
+  Future<void> _loadSnapshot({bool isSilent = false}) async {
+    if (!isSilent && mounted) {
+      setState(() => _isLoading = true);
+    }
     try {
-      final nodes = await DatabaseService.instance.fetchAllNodes();
+      final snapshot = await DatabaseService.instance.fetchInsightSnapshot(
+        range: _selectedInsightRange(),
+        selectedKeyword: _selectedType,
+      );
       if (mounted) {
         setState(() {
-          _nodes = nodes;
+          _snapshot = snapshot;
+          if (!_snapshot.filters.contains(_selectedType)) {
+            _selectedType = 'All';
+          }
           _isLoading = false;
         });
       }
@@ -129,6 +146,15 @@ class _SummaryPageState extends State<SummaryPage> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  InsightTimeRange _selectedInsightRange() {
+    if (_selectedRange == 'Last 24 Hours') {
+      return InsightTimeRange.last24Hours();
+    } else if (_selectedRange == 'Last 7 Days') {
+      return InsightTimeRange.last7Days();
+    }
+    return InsightTimeRange.allTime();
   }
 
   List<MemoryNode> _nodesForSelectedRange() {
@@ -154,6 +180,21 @@ class _SummaryPageState extends State<SummaryPage> {
 
   List<Map<String, dynamic>> _getFilteredInsights() {
     return _filteredInsightsForNodes(_nodesForSelectedRange());
+  }
+
+  List<Map<String, dynamic>> _snapshotItems() {
+    return _snapshot.items.map(_insightItemToMap).toList();
+  }
+
+  Map<String, dynamic> _insightItemToMap(InsightItem insight) {
+    return {
+      'type': 'aggregate',
+      'icon': Icons.hub_outlined,
+      'title': insight.keyword,
+      'date': DateFormat('MMM d, yyyy').format(insight.latestTimestamp),
+      'body': insight.summary,
+      'tags': insight.sources.map((source) => '#$source').toList(),
+    };
   }
 
   List<Map<String, dynamic>> _filteredInsightsForNodes(
@@ -229,11 +270,7 @@ class _SummaryPageState extends State<SummaryPage> {
       final result = await ReportDownloadService.instance.saveMarkdownReport(
         selectPeriod: () => showExportPeriodPicker(context),
         suggestedName: (period) {
-          final periodNodes = period.filterNodes(_nodes);
-          final filters = _insightFiltersForNodes(periodNodes);
-          final effectiveSelectedType = filters.contains(_selectedType)
-              ? _selectedType
-              : 'All';
+          final effectiveSelectedType = _selectedType;
           final safeType = effectiveSelectedType.replaceAll(
             RegExp(r'[^\w]'),
             '_',
@@ -241,14 +278,30 @@ class _SummaryPageState extends State<SummaryPage> {
           final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
           return 'MemoryOS_${safeType}_${period.filenameSlug}_Summary_$stamp.md';
         },
-        buildMarkdown: (period) {
-          final periodNodes = period.filterNodes(_nodes);
-          final filters = _insightFiltersForNodes(periodNodes);
-          final effectiveSelectedType = filters.contains(_selectedType)
-              ? _selectedType
-              : 'All';
+        buildMarkdown: (period) async {
+          final effectiveSelectedType = _selectedType;
+          if (widget.initialNodes != null) {
+            final periodNodes = period.filterNodes(_nodes);
+            final filters = _insightFiltersForNodes(periodNodes);
+            final selected = filters.contains(effectiveSelectedType)
+                ? effectiveSelectedType
+                : 'All';
+            return _buildMarkdownReport(
+              items: _filteredInsightsForNodes(periodNodes),
+              selectedType: selected,
+              periodLabel: period.label,
+            );
+          }
+          final periodRange = period.rangeFor(DateTime.now());
+          final snapshot = await DatabaseService.instance.fetchInsightSnapshot(
+            range: InsightTimeRange.custom(
+              periodRange.start,
+              periodRange.endExclusive,
+            ),
+            selectedKeyword: effectiveSelectedType,
+          );
           return _buildMarkdownReport(
-            items: _filteredInsightsForNodes(periodNodes),
+            items: snapshot.items.map(_insightItemToMap).toList(),
             selectedType: effectiveSelectedType,
             periodLabel: period.label,
           );
@@ -279,8 +332,13 @@ class _SummaryPageState extends State<SummaryPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final currentDraftItems = _getFilteredInsights();
-    final insightFilters = _insightFilters();
+    final usesInitialNodes = widget.initialNodes != null;
+    final currentDraftItems = usesInitialNodes
+        ? _getFilteredInsights()
+        : _snapshotItems();
+    final insightFilters = usesInitialNodes
+        ? _insightFilters()
+        : _snapshot.filters;
     final effectiveSelectedType = insightFilters.contains(_selectedType)
         ? _selectedType
         : 'All';
@@ -340,6 +398,9 @@ class _SummaryPageState extends State<SummaryPage> {
                         setState(() {
                           _selectedType = type;
                         });
+                        if (widget.initialNodes == null) {
+                          unawaited(_loadSnapshot(isSilent: true));
+                        }
                       },
                       side: BorderSide(
                         color: isSelected
@@ -389,6 +450,9 @@ class _SummaryPageState extends State<SummaryPage> {
                         setState(() {
                           _selectedRange = range;
                         });
+                        if (widget.initialNodes == null) {
+                          unawaited(_loadSnapshot());
+                        }
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 8),

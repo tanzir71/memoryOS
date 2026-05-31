@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -45,14 +46,14 @@ class ReportDownloadService {
   Future<ReportDownloadResult> saveMarkdownReport({
     required ExportPeriodSelector selectPeriod,
     required String Function(ExportPeriod period) suggestedName,
-    required String Function(ExportPeriod period) buildMarkdown,
+    required FutureOr<String> Function(ExportPeriod period) buildMarkdown,
   }) async {
     final period = await selectPeriod();
     if (period == null) {
       return const ReportDownloadResult.canceledPeriod();
     }
 
-    final contents = buildMarkdown(period);
+    final contents = await Future<String>.value(buildMarkdown(period));
     final path = await _saveMarkdownFile(
       suggestedName: suggestedName(period),
       contents: contents,

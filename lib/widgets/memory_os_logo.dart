@@ -30,14 +30,30 @@ class _MemoryOSLogoPainter extends CustomPainter {
       ..style = PaintingStyle.fill
       ..color = color;
 
-    final path = Path()
+    final outerPath = Path()
       ..moveTo(size.width * 32 / 64, size.height * 4 / 64)
       ..lineTo(size.width * 60 / 64, size.height * 32 / 64)
       ..lineTo(size.width * 32 / 64, size.height * 60 / 64)
       ..lineTo(size.width * 4 / 64, size.height * 32 / 64)
       ..close();
 
-    canvas.drawPath(path, paint);
+    final innerPath = Path()
+      ..moveTo(size.width * 32 / 64, size.height * 18 / 64)
+      ..lineTo(size.width * 46 / 64, size.height * 32 / 64)
+      ..lineTo(size.width * 32 / 64, size.height * 46 / 64)
+      ..lineTo(size.width * 18 / 64, size.height * 32 / 64)
+      ..close();
+
+    final centerPath = Path()
+      ..moveTo(size.width * 32 / 64, size.height * 27 / 64)
+      ..lineTo(size.width * 37 / 64, size.height * 32 / 64)
+      ..lineTo(size.width * 32 / 64, size.height * 37 / 64)
+      ..lineTo(size.width * 27 / 64, size.height * 32 / 64)
+      ..close();
+
+    canvas.drawPath(outerPath, paint);
+    canvas.drawPath(innerPath, paint..color = Colors.white);
+    canvas.drawPath(centerPath, paint..color = color);
   }
 
   @override

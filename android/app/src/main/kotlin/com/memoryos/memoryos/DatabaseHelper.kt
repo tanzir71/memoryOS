@@ -177,6 +177,159 @@ object DatabaseHelper {
             )
             """.trimIndent()
         )
+
+        createIndexes(db)
+        createInsightSchema(db)
+        db.execSQL("PRAGMA user_version = 8")
+    }
+
+    private fun createIndexes(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_memory_nodes_timestamp
+            ON memory_nodes(timestamp DESC)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_memory_nodes_trail_timestamp
+            ON memory_nodes(trail, timestamp DESC)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_memory_nodes_source_timestamp
+            ON memory_nodes(source, timestamp DESC)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_memory_nodes_deleted_at
+            ON memory_nodes(deleted_at)
+            """.trimIndent()
+        )
+    }
+
+    private fun createInsightSchema(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS insight_index_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS insight_node_index (
+                node_id INTEGER PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                bucket_start TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                source TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                trail TEXT NOT NULL,
+                is_starred INTEGER NOT NULL DEFAULT 0,
+                deleted_at TEXT,
+                is_visible INTEGER NOT NULL,
+                registry_hash TEXT NOT NULL,
+                algorithm_version INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS insight_term_index (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                node_id INTEGER NOT NULL,
+                bucket_start TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                label TEXT NOT NULL,
+                normalized TEXT NOT NULL,
+                category TEXT NOT NULL,
+                score REAL NOT NULL,
+                sources_json TEXT NOT NULL,
+                registry_hash TEXT NOT NULL,
+                algorithm_version INTEGER NOT NULL,
+                UNIQUE(node_id, kind, normalized, registry_hash, algorithm_version)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS insight_bucket_rollups (
+                bucket_start TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                normalized TEXT NOT NULL,
+                label TEXT NOT NULL,
+                category TEXT NOT NULL,
+                count INTEGER NOT NULL,
+                score REAL NOT NULL,
+                latest_timestamp TEXT NOT NULL,
+                latest_node_id INTEGER,
+                sources_json TEXT NOT NULL,
+                registry_hash TEXT NOT NULL,
+                algorithm_version INTEGER NOT NULL,
+                PRIMARY KEY (
+                    bucket_start,
+                    kind,
+                    normalized,
+                    registry_hash,
+                    algorithm_version
+                )
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_insight_node_time_visible
+            ON insight_node_index(is_visible, timestamp DESC)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_insight_node_bucket
+            ON insight_node_index(bucket_start)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_insight_node_registry_version
+            ON insight_node_index(registry_hash, algorithm_version)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_insight_term_node
+            ON insight_term_index(node_id)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_insight_term_lookup
+            ON insight_term_index(kind, normalized, timestamp DESC)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_insight_term_bucket
+            ON insight_term_index(bucket_start, kind, normalized)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_insight_term_registry_version
+            ON insight_term_index(registry_hash, algorithm_version)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS idx_insight_rollup_lookup
+            ON insight_bucket_rollups(kind, normalized, bucket_start)
+            """.trimIndent()
+        )
     }
 
     private fun addColumnIfMissing(

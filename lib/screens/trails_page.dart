@@ -220,7 +220,8 @@ class _TrailsPageState extends State<TrailsPage> {
       setState(() => _isThreadsLoading = true);
     }
     try {
-      final threads = await DatabaseService.instance.getDynamicThreads();
+      final threads = await DatabaseService.instance
+          .fetchDynamicInsightThreads();
       if (mounted) {
         setState(() {
           _dynamicThreads = threads;
@@ -249,8 +250,9 @@ class _TrailsPageState extends State<TrailsPage> {
       setState(() => _isLoading = true);
     }
     try {
-      final nodes = await DatabaseService.instance.fetchNodesByDynamicThread(
+      final nodes = await DatabaseService.instance.fetchNodesForInsightGroup(
         _selectedThread!,
+        limit: 100,
       );
       if (mounted) {
         setState(() {

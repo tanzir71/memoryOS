@@ -23,4 +23,35 @@ void main() {
       }),
     );
   });
+
+  test('insight index tables and lookup indexes are created', () async {
+    final db = await DatabaseService.instance.database;
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table'",
+    );
+    final tableNames = tables.map((row) => row['name']).toSet();
+
+    expect(
+      tableNames,
+      containsAll({
+        'insight_index_meta',
+        'insight_node_index',
+        'insight_term_index',
+        'insight_bucket_rollups',
+      }),
+    );
+
+    final termIndexes = await db.rawQuery(
+      "PRAGMA index_list('insight_term_index')",
+    );
+    expect(
+      termIndexes.map((row) => row['name']).toSet(),
+      containsAll({
+        'idx_insight_term_node',
+        'idx_insight_term_lookup',
+        'idx_insight_term_bucket',
+        'idx_insight_term_registry_version',
+      }),
+    );
+  });
 }

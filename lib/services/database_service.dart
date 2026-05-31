@@ -4,11 +4,13 @@ import 'package:sqflite/sqflite.dart';
 import '../models/memory_node.dart';
 import 'capture_metadata.dart';
 import 'app_category_registry.dart';
-import 'insight_terms.dart';
+import 'insight_index_service.dart';
+import 'memory_node_visibility.dart';
 
 class DatabaseService {
   static final DatabaseService instance = DatabaseService._init();
   static Database? _database;
+  static String _databaseName = 'memoryos.db';
   final StreamController<void> _changesController =
       StreamController<void>.broadcast();
 
@@ -18,8 +20,22 @@ class DatabaseService {
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB('memoryos.db');
+    _database = await _initDB(_databaseName);
     return _database!;
+  }
+
+  Future<void> resetForTesting({String? databaseName}) async {
+    final current = _database;
+    _database = null;
+    if (current != null) {
+      await current.close();
+    }
+    if (databaseName != null) {
+      _databaseName = databaseName;
+    }
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, _databaseName);
+    await deleteDatabase(path);
   }
 
   Future<Database> _initDB(String filePath) async {
@@ -28,7 +44,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 7,
+      version: 8,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -36,6 +52,18 @@ class DatabaseService {
 
   Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 5) {
+      if (await _tableExists(db, 'memory_nodes')) {
+        await _addColumnIfMissing(db, 'memory_nodes', 'deleted_at TEXT');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          )
+        ''');
+        await _createIndexes(db);
+        await InsightIndexService.instance.createSchema(db);
+        return;
+      }
       await db.execute('DROP TABLE IF EXISTS memory_nodes');
       await db.execute('DROP TABLE IF EXISTS settings');
       await _createDB(db, newVersion);
@@ -46,6 +74,9 @@ class DatabaseService {
     }
     if (oldVersion < 7) {
       await _createIndexes(db);
+    }
+    if (oldVersion < 8) {
+      await InsightIndexService.instance.createSchema(db);
     }
   }
 
@@ -72,6 +103,7 @@ class DatabaseService {
     ''');
 
     await _createIndexes(db);
+    await InsightIndexService.instance.createSchema(db);
 
     // Pre-populate with beautiful high-fidelity mock data from the Stitch screens!
     await _prepopulateData(db);
@@ -120,6 +152,12 @@ class DatabaseService {
       registry.toSettingsValue(),
     );
     AppCategoryRegistry.active = registry;
+    try {
+      final db = await instance.database;
+      await InsightIndexService.instance.markRegistryChanged(db);
+    } catch (_) {
+      // Keep widget/unit tests without a database factory lightweight.
+    }
     _emitChange();
   }
 
@@ -214,7 +252,10 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [node.id],
     );
-    if (count > 0) _emitChange();
+    if (count > 0) {
+      await InsightIndexService.instance.removeNodes(db, [node.id!]);
+      _emitChange();
+    }
     return count;
   }
 
@@ -226,7 +267,9 @@ class DatabaseService {
       where: 'deleted_at IS NULL',
       orderBy: 'timestamp DESC',
     );
-    return _visibleNodes(result.map((json) => MemoryNode.fromMap(json)));
+    return filterVisibleMemoryNodes(
+      result.map((json) => MemoryNode.fromMap(json)),
+    );
   }
 
   Future<List<MemoryNode>> fetchNodesByDate(DateTime date) async {
@@ -252,7 +295,9 @@ class DatabaseService {
       whereArgs: [startOfDay, endOfDay],
       orderBy: 'timestamp DESC',
     );
-    return _visibleNodes(result.map((json) => MemoryNode.fromMap(json)));
+    return filterVisibleMemoryNodes(
+      result.map((json) => MemoryNode.fromMap(json)),
+    );
   }
 
   Future<List<MemoryNode>> fetchNodesByTrail(String trail) async {
@@ -264,7 +309,9 @@ class DatabaseService {
       whereArgs: [trail],
       orderBy: 'timestamp DESC',
     );
-    return _visibleNodes(result.map((json) => MemoryNode.fromMap(json)));
+    return filterVisibleMemoryNodes(
+      result.map((json) => MemoryNode.fromMap(json)),
+    );
   }
 
   Future<List<MemoryNode>> searchNodes(String query) async {
@@ -276,24 +323,62 @@ class DatabaseService {
       whereArgs: ['%$query%', '%$query%'],
       orderBy: 'timestamp DESC',
     );
-    return _visibleNodes(result.map((json) => MemoryNode.fromMap(json)));
+    return filterVisibleMemoryNodes(
+      result.map((json) => MemoryNode.fromMap(json)),
+    );
   }
 
   Future<List<String>> getDynamicThreads() async {
+    return fetchDynamicInsightThreads();
+  }
+
+  Future<void> ensureInsightIndexFresh() async {
     await loadAppCategoryRegistry();
-    final nodes = await fetchAllNodes();
-    return extractInsightGroups(
-      nodes,
-      limit: 6,
-    ).map((group) => group.label).toList();
+    final db = await instance.database;
+    await InsightIndexService.instance.ensureFresh(db);
+  }
+
+  Future<InsightSnapshot> fetchInsightSnapshot({
+    required InsightTimeRange range,
+    String selectedKeyword = 'All',
+    int limit = 6,
+  }) async {
+    await loadAppCategoryRegistry();
+    final db = await instance.database;
+    return InsightIndexService.instance.fetchSnapshot(
+      db,
+      range: range,
+      selectedKeyword: selectedKeyword,
+      limit: limit,
+    );
+  }
+
+  Future<List<String>> fetchDynamicInsightThreads({int limit = 6}) async {
+    await loadAppCategoryRegistry();
+    final db = await instance.database;
+    return InsightIndexService.instance.fetchDynamicThreads(db, limit: limit);
   }
 
   // Fetch nodes matching the app-first dynamic group, with noun fallback.
   Future<List<MemoryNode>> fetchNodesByDynamicThread(String keyword) async {
+    return fetchNodesForInsightGroup(keyword);
+  }
+
+  Future<List<MemoryNode>> fetchNodesForInsightGroup(
+    String label, {
+    InsightTimeRange? range,
+    int limit = 100,
+    int offset = 0,
+  }) async {
     await loadAppCategoryRegistry();
-    final group = insightGroupFromLabel(keyword);
-    final nodes = await fetchAllNodes();
-    return nodes.where((node) => nodeMatchesInsightGroup(node, group)).toList();
+    final db = await instance.database;
+    return InsightIndexService.instance.fetchNodesForGroup(
+      db,
+      label,
+      range: range,
+      limit: limit,
+      offset: offset,
+    );
   }
 
   Future<int> deleteNode(int id) async {
@@ -308,19 +393,30 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [id],
     );
-    if (count > 0) _emitChange();
+    if (count > 0) {
+      await InsightIndexService.instance.removeNodes(db, [id]);
+      _emitChange();
+    }
     return count;
   }
 
   Future<int> softDeleteNodesByDate(DateTime date) async {
     final db = await instance.database;
+    final affectedIds = await _idsWhere(
+      db,
+      'timestamp >= ? AND timestamp < ? AND deleted_at IS NULL',
+      [_startOfDayIso(date), _startOfNextDayIso(date)],
+    );
     final count = await db.update(
       'memory_nodes',
       {'deleted_at': DateTime.now().toIso8601String()},
       where: 'timestamp >= ? AND timestamp < ? AND deleted_at IS NULL',
       whereArgs: [_startOfDayIso(date), _startOfNextDayIso(date)],
     );
-    if (count > 0) _emitChange();
+    if (count > 0) {
+      await InsightIndexService.instance.removeNodes(db, affectedIds);
+      _emitChange();
+    }
     return count;
   }
 
@@ -332,7 +428,10 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [id],
     );
-    if (count > 0) _emitChange();
+    if (count > 0) {
+      await InsightIndexService.instance.removeNodes(db, [id]);
+      _emitChange();
+    }
     return count;
   }
 
@@ -343,28 +442,43 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [id],
     );
-    if (count > 0) _emitChange();
+    if (count > 0) {
+      await InsightIndexService.instance.removeNodes(db, [id]);
+      _emitChange();
+    }
     return count;
   }
 
   Future<int> permanentlyDeleteDeletedNodesByDate(DateTime date) async {
     final db = await instance.database;
+    final affectedIds = await _idsWhere(
+      db,
+      'deleted_at IS NOT NULL AND timestamp >= ? AND timestamp < ?',
+      [_startOfDayIso(date), _startOfNextDayIso(date)],
+    );
     final count = await db.delete(
       'memory_nodes',
       where: 'deleted_at IS NOT NULL AND timestamp >= ? AND timestamp < ?',
       whereArgs: [_startOfDayIso(date), _startOfNextDayIso(date)],
     );
-    if (count > 0) _emitChange();
+    if (count > 0) {
+      await InsightIndexService.instance.removeNodes(db, affectedIds);
+      _emitChange();
+    }
     return count;
   }
 
   Future<int> permanentlyDeleteAllDeletedNodes() async {
     final db = await instance.database;
+    final affectedIds = await _idsWhere(db, 'deleted_at IS NOT NULL', []);
     final count = await db.delete(
       'memory_nodes',
       where: 'deleted_at IS NOT NULL',
     );
-    if (count > 0) _emitChange();
+    if (count > 0) {
+      await InsightIndexService.instance.removeNodes(db, affectedIds);
+      _emitChange();
+    }
     return count;
   }
 
@@ -384,97 +498,26 @@ class DatabaseService {
     final cutoff = DateTime.now()
         .subtract(const Duration(days: 30))
         .toIso8601String();
-    return await db.delete(
+    final affectedIds = await _idsWhere(
+      db,
+      'deleted_at IS NOT NULL AND deleted_at <= ?',
+      [cutoff],
+    );
+    final count = await db.delete(
       'memory_nodes',
       where: 'deleted_at IS NOT NULL AND deleted_at <= ?',
       whereArgs: [cutoff],
     );
-  }
-
-  List<MemoryNode> _visibleNodes(Iterable<MemoryNode> nodes) {
-    final seenScreenshotFiles = <String>{};
-    final seenOngoingNotifications = <String>{};
-    final recentSimilarNotifications = <String, DateTime>{};
-    return nodes.where((node) {
-      if (node.deletedAt != null) {
-        return false;
-      }
-
-      if (isMarketingNotificationRecord(
-        source: node.source,
-        metadata: node.metadata,
-        title: node.title,
-        content: node.content,
-      )) {
-        return false;
-      }
-
-      if (isSuppressedNotificationRecord(
-        source: node.source,
-        metadata: node.metadata,
-      )) {
-        return false;
-      }
-
-      if (isDeniedNotificationRecord(
-        source: node.source,
-        metadata: node.metadata,
-      )) {
-        return false;
-      }
-
-      if (isNotificationRemovalRecord(node.source)) {
-        return false;
-      }
-      if (isScreenshotFileRecord(
-        source: node.source,
-        metadata: node.metadata,
-      )) {
-        final fileName = extractScreenshotFileName(
-          node.metadata,
-        )?.toLowerCase();
-        if (fileName != null && !seenScreenshotFiles.add(fileName)) {
-          return false;
-        }
-      }
-
-      final ongoingKey = ongoingNotificationDedupeKey(
-        source: node.source,
-        title: node.title,
-        metadata: node.metadata,
-      );
-      if (ongoingKey != null && !seenOngoingNotifications.add(ongoingKey)) {
-        return false;
-      }
-
-      final shortWindowKey = shortWindowNotificationDedupeKey(
-        source: node.source,
-        title: node.title,
-        content: node.content,
-        metadata: node.metadata,
-      );
-      if (shortWindowKey != null) {
-        final latestSeen = recentSimilarNotifications[shortWindowKey];
-        if (latestSeen != null &&
-            latestSeen.difference(node.timestamp).abs() <=
-                const Duration(minutes: 5)) {
-          return false;
-        }
-        recentSimilarNotifications[shortWindowKey] = node.timestamp;
-      }
-
-      return !isScreenshotCaptureNotificationRecord(
-        source: node.source,
-        metadata: node.metadata,
-        title: node.title,
-        content: node.content,
-      );
-    }).toList();
+    if (count > 0) {
+      await InsightIndexService.instance.removeNodes(db, affectedIds);
+    }
+    return count;
   }
 
   Future<void> clearDatabase() async {
     final db = await instance.database;
     await db.delete('memory_nodes');
+    await InsightIndexService.instance.clear(db);
     _emitChange();
   }
 
@@ -495,6 +538,14 @@ class DatabaseService {
     }
   }
 
+  Future<bool> _tableExists(Database db, String table) async {
+    final rows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      [table],
+    );
+    return rows.isNotEmpty;
+  }
+
   Future<void> _createIndexes(Database db) async {
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_memory_nodes_timestamp
@@ -512,6 +563,20 @@ class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_memory_nodes_deleted_at
       ON memory_nodes(deleted_at)
     ''');
+  }
+
+  Future<List<int>> _idsWhere(
+    Database db,
+    String where,
+    List<Object?> whereArgs,
+  ) async {
+    final rows = await db.query(
+      'memory_nodes',
+      columns: ['id'],
+      where: where,
+      whereArgs: whereArgs,
+    );
+    return rows.map((row) => row['id']).whereType<int>().toList();
   }
 
   void _emitChange() {
