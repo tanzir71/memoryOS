@@ -83,3 +83,21 @@
 - `flutter analyze --no-fatal-infos`: 0 errors, 0 warnings.
 - `flutter test`: 52/52 tests passed (all 152+ fixtures green).
 - `flutter build apk --debug`: succeeded (`build/app/outputs/flutter-apk/app-debug.apk`).
+
+## M4: Threads and open loops
+
+### Completed
+- Implemented `ThreadLinker` (`lib/engine/linker.dart`), `ThreadActions` (`lib/engine/thread_actions.dart`), and `topic_utils.dart` with weighted scoring (`same_reference` 1.0, `same_person` 0.5, `same_subject` 0.3, `close_in_time` 0.3, `same_conversation` 0.3), 2-reason auto-link rule, 0.3–0.79 `suggested` queue (max 3 pending, never re-asked), stored reasons, order+payment cross-link (1% amount + merchant token within 10 minutes), and meeting threads (calendar + overlapping Meet/Zoom/Teams call + guest messages within 30 min + voice notes during + guest email within 3 h sharing a subject word).
+- Implemented `OpenLoopEngine` (`lib/engine/open_loop_engine.dart`) for creating loops from `asks_you`, `you_said`, user's own inline asks (`owner = 'them'`), missed calls unreturned after 3 hours, and undelivered orders, plus closing via `confirms`, delivery, return call, user mark-done, meeting completion, and 14-day quiet timeout.
+- Implemented `DaySummaryEngine` (`lib/engine/day_summary_engine.dart`) computing facts (`conversations`, `meetings`, `money_spent` deduplicated per order/payment thread, `set_aside_count`) and deterministic headlines (falling back to date only when fewer than 2 items).
+- Implemented `SignalPipeline` (`lib/engine/pipeline.dart`) wiring triage -> person -> extract -> intent -> link -> open loops -> FTS.
+- Added Reference Day fixture (`test/fixtures/day_2026_11_27.json`) and end-to-end verification tests (`test/reference_day_test.dart`).
+
+### Decisions
+- Isolated `meeting` threads from generic `same_person + close_in_time` scoring so unrelated calls after a meeting (such as Imran's 16:42 missed call after the 15:00 Design sync) stay separate rather than merging into the meeting thread.
+- Deduplicated `money_spent` per thread in `DaySummaryEngine` so an order and its linked bKash payment count once (Tk 1,250 + Tk 480 = Tk 1,730).
+
+### Checks
+- `flutter analyze --no-fatal-infos`: 0 errors, 0 warnings.
+- `flutter test`: 55/55 tests passed (including full Reference Day and user action checks).
+- `flutter build apk --debug`: succeeded (`build/app/outputs/flutter-apk/app-debug.apk`).

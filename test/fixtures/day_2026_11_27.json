@@ -1,0 +1,195 @@
+{
+  "date": "2026-11-27",
+  "contacts": [
+    {
+      "displayName": "Nabila Rahman",
+      "lookupKey": "contact-nabila",
+      "phones": ["+8801711000001"],
+      "emails": ["nabila@client.co"]
+    },
+    {
+      "displayName": "Imran Hossain",
+      "lookupKey": "contact-imran",
+      "phones": ["+8801711000002"],
+      "emails": ["imran@studio.co"]
+    },
+    {
+      "displayName": "Sadia Karim",
+      "lookupKey": "contact-sadia",
+      "phones": ["+8801711000003"],
+      "emails": ["sadia@studio.co"]
+    }
+  ],
+  "events": [
+    {
+      "id": "nabila_missed_wa",
+      "source": "notification",
+      "pkg": "com.whatsapp",
+      "category": "missed_call",
+      "importance": 4,
+      "title": "Nabila Rahman",
+      "body": "Missed voice call",
+      "occurredAt": "2026-11-27T10:12:00",
+      "extras": { "callType": "missed" }
+    },
+    {
+      "id": "nabila_wa_ask",
+      "source": "notification",
+      "pkg": "com.whatsapp",
+      "category": "msg",
+      "importance": 4,
+      "isConversation": true,
+      "title": "Nabila Rahman",
+      "body": "Can you send the revised quote today? Need it before Thursday.",
+      "occurredAt": "2026-11-27T10:14:00",
+      "extras": {}
+    },
+    {
+      "id": "nabila_outgoing_call",
+      "source": "call",
+      "category": "outgoing",
+      "title": "Nabila Rahman",
+      "body": "+8801711000001",
+      "occurredAt": "2026-11-27T10:31:00",
+      "endedAt": "2026-11-27T10:43:00",
+      "extras": { "number": "+8801711000001", "callType": "outgoing", "durationSec": 720 }
+    },
+    {
+      "id": "nabila_email_quote",
+      "source": "notification",
+      "pkg": "com.google.android.gm",
+      "category": "email",
+      "importance": 3,
+      "title": "Nabila Rahman",
+      "body": "Re: Website quote, scope changes\nAttached the updated scope notes for the website quote.",
+      "occurredAt": "2026-11-27T11:05:00",
+      "extras": { "email": "nabila@client.co" }
+    },
+    {
+      "id": "nabila_cal_invite",
+      "source": "calendar",
+      "category": "event",
+      "title": "Quote review",
+      "body": "Thu 3 December 15:00 to 15:30",
+      "occurredAt": "2026-11-27T11:20:00",
+      "extras": {
+        "isInvite": true,
+        "organizer": "nabila@client.co",
+        "eventStartAt": "2026-12-03T15:00:00",
+        "eventEndAt": "2026-12-03T15:30:00"
+      }
+    },
+    {
+      "id": "foodpanda_placed",
+      "source": "notification",
+      "pkg": "com.global.foodpanda.android",
+      "importance": 3,
+      "title": "Foodpanda",
+      "body": "Order placed from Kacchi Bhai Tk 480",
+      "occurredAt": "2026-11-27T12:31:00",
+      "extras": {}
+    },
+    {
+      "id": "foodpanda_delivered",
+      "source": "notification",
+      "pkg": "com.global.foodpanda.android",
+      "importance": 3,
+      "title": "Foodpanda",
+      "body": "Order delivered from Kacchi Bhai Tk 480",
+      "occurredAt": "2026-11-27T13:05:00",
+      "extras": {}
+    },
+    {
+      "id": "sadia_email_template",
+      "source": "notification",
+      "pkg": "com.google.android.gm",
+      "category": "email",
+      "importance": 3,
+      "title": "Sadia Karim",
+      "body": "Quote template v3\nSharing the updated template file.",
+      "occurredAt": "2026-11-27T14:15:00",
+      "extras": { "email": "sadia@studio.co" }
+    },
+    {
+      "id": "sadia_wa_late",
+      "source": "notification",
+      "pkg": "com.whatsapp",
+      "category": "msg",
+      "importance": 4,
+      "isConversation": true,
+      "title": "Sadia Karim",
+      "body": "Running 5 late, start without me.",
+      "occurredAt": "2026-11-27T14:58:00",
+      "extras": {}
+    },
+    {
+      "id": "cal_design_sync",
+      "source": "calendar",
+      "category": "event",
+      "title": "Design sync",
+      "body": "Google Meet",
+      "occurredAt": "2026-11-27T15:00:00",
+      "endedAt": "2026-11-27T15:30:00",
+      "extras": {
+        "rrule": "FREQ=WEEKLY;BYDAY=FR",
+        "location": "Google Meet",
+        "attendees": [
+          { "name": "Imran Hossain", "email": "imran@studio.co" },
+          { "name": "Sadia Karim", "email": "sadia@studio.co" }
+        ]
+      }
+    },
+    {
+      "id": "meet_design_sync_call",
+      "source": "notification",
+      "pkg": "com.google.android.apps.tachyon",
+      "category": "call",
+      "flags": 2,
+      "importance": 4,
+      "title": "Design sync",
+      "body": "Google Meet call",
+      "occurredAt": "2026-11-27T15:02:00",
+      "endedAt": "2026-11-27T15:41:00",
+      "extras": {}
+    },
+    {
+      "id": "imran_email_notes",
+      "source": "notification",
+      "pkg": "com.google.android.gm",
+      "category": "email",
+      "importance": 3,
+      "title": "Imran Hossain",
+      "body": "Notes from design sync\nSummary of decisions from today's design sync.",
+      "occurredAt": "2026-11-27T16:10:00",
+      "extras": { "email": "imran@studio.co" }
+    },
+    {
+      "id": "imran_missed_call",
+      "source": "call",
+      "category": "missed",
+      "title": "Imran Hossain",
+      "body": "+8801711000002",
+      "occurredAt": "2026-11-27T16:42:00",
+      "extras": { "number": "+8801711000002", "callType": "missed", "durationSec": 0 }
+    },
+    {
+      "id": "daraz_order",
+      "source": "notification",
+      "pkg": "com.daraz.android",
+      "importance": 3,
+      "title": "Daraz",
+      "body": "Order placed #DZ99210 for USB-C charger Tk 1,250",
+      "occurredAt": "2026-11-27T17:28:00",
+      "extras": {}
+    },
+    {
+      "id": "bkash_payment_daraz",
+      "source": "sms",
+      "title": "bKash",
+      "body": "Payment of Tk 1,250 to Daraz is successful. Fee Tk 0.00. TrxID XY99887766",
+      "occurredAt": "2026-11-27T17:30:00",
+      "extras": {}
+    }
+  ],
+  "noiseCount": 60
+}
