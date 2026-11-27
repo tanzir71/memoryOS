@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'timeline_page.dart';
-import 'summary_page.dart';
 import 'sources_page.dart';
-import 'trails_page.dart';
 
 class ShellPage extends StatefulWidget {
   const ShellPage({super.key});
@@ -14,88 +12,29 @@ class ShellPage extends StatefulWidget {
 
 class _ShellPageState extends State<ShellPage> {
   int _currentIndex = 0;
-  bool _isSyncing = false;
 
-  final List<Widget> _pages = [
-    const TimelinePage(),
-    const SummaryPage(),
-    const SourcesPage(),
-    const TrailsPage(),
+  final List<Widget> _pages = const [
+    TimelinePage(),
+    SourcesPage(),
   ];
-
-  void _triggerSync() {
-    setState(() {
-      _isSyncing = true;
-    });
-    // Simulate a local sync completion in 1.5 seconds
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (mounted) {
-        setState(() {
-          _isSyncing = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'Passive storage streams synchronized locally.',
-              style: TextStyle(fontFamily: 'JetBrains Mono', fontSize: 12),
-            ),
-            backgroundColor: AppTheme.primary,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-        );
-      }
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
-      // Global Sticky App Bar
       appBar: AppBar(
-        title: Row(
-          children: [
-            const Icon(
-              Icons.security,
-              color: AppTheme.primary,
-              size: 24,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'Memory OS',
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                letterSpacing: -0.5,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            onPressed: _isSyncing ? null : _triggerSync,
-            icon: _isSyncing
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
-                    ),
-                  )
-                : const Icon(
-                    Icons.sync,
-                    color: AppTheme.onSurfaceVariant,
-                  ),
-            tooltip: 'Synchronize Local Streams',
+        title: Text(
+          'MemoryOS',
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            letterSpacing: -0.5,
           ),
-          const SizedBox(width: 12),
-        ],
+        ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
           child: Container(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             height: 1.0,
           ),
         ),
@@ -104,28 +43,24 @@ class _ShellPageState extends State<ShellPage> {
         index: _currentIndex,
         children: _pages,
       ),
-      // Stitch Custom Navigation Bar
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.95),
+          color: Colors.white.withValues(alpha: 0.95),
           border: Border(
             top: BorderSide(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               width: 1,
             ),
           ),
         ),
         child: SafeArea(
-          child: Container(
+          child: SizedBox(
             height: 64,
-            padding: const EdgeInsets.symmetric(vertical: 4),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildNavItem(0, Icons.timeline, 'Timeline'),
-                _buildNavItem(1, Icons.auto_awesome, 'Insights'),
-                _buildNavItem(2, Icons.settings_input_component, 'Sources'),
-                _buildNavItem(3, Icons.account_tree, 'Threads'),
+                _buildNavItem(1, Icons.tune, 'Sources'),
               ],
             ),
           ),
@@ -138,7 +73,7 @@ class _ShellPageState extends State<ShellPage> {
     final theme = Theme.of(context);
     final isActive = _currentIndex == index;
     final activeColor = AppTheme.primary;
-    final inactiveColor = AppTheme.onSurfaceVariant.withOpacity(0.6);
+    final inactiveColor = AppTheme.onSurfaceVariant.withValues(alpha: 0.6);
 
     return InkWell(
       onTap: () {
@@ -147,8 +82,8 @@ class _ShellPageState extends State<ShellPage> {
         });
       },
       borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -161,23 +96,11 @@ class _ShellPageState extends State<ShellPage> {
             Text(
               label,
               style: theme.textTheme.labelSmall?.copyWith(
-                fontFamily: 'JetBrains Mono',
                 fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                 color: isActive ? activeColor : inactiveColor,
-                fontSize: 10,
+                fontSize: 11,
               ),
             ),
-            // Bottom small line matching the Stitch active nav line
-            if (isActive)
-              Container(
-                margin: const EdgeInsets.only(top: 2),
-                width: 16,
-                height: 2,
-                decoration: BoxDecoration(
-                  color: activeColor,
-                  borderRadius: BorderRadius.circular(1),
-                ),
-              ),
           ],
         ),
       ),

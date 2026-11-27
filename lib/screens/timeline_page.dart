@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -29,7 +28,6 @@ class _TimelinePageState extends State<TimelinePage> {
   bool _isRecording = false;
   String _recordingTime = "00:00";
   Timer? _recordingTimer;
-  Timer? _refreshTimer;
   int _secondsRecorded = 0;
   final TextEditingController _voiceTitleController = TextEditingController();
 
@@ -38,15 +36,12 @@ class _TimelinePageState extends State<TimelinePage> {
   int? _playingNodeId;
   bool _isPlaying = false;
 
-  // Permission Statuses for Stream Setup Onboarding Guide
   Map<String, bool> _permissionsGranted = {
     'voice_note': true,
     'location': true,
-    'calendar': true,
     'notification': true,
     'photo': true,
     'bluetooth': true,
-    'reading': true,
     'background_listening': true,
     'battery_optimization': true,
   };
@@ -57,7 +52,6 @@ class _TimelinePageState extends State<TimelinePage> {
     super.initState();
     _audioPlayer = AudioPlayer();
 
-    // Bind playback state listeners
     _audioPlayer!.onPlayerStateChanged.listen((state) {
       if (mounted) {
         setState(() {
@@ -73,14 +67,6 @@ class _TimelinePageState extends State<TimelinePage> {
     _loadNodes();
     _checkAllPermissions();
     _requestNotificationPermissionOnStartup();
-
-    // Refresh timeline nodes when returning to this page
-    _refreshTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
-      if (mounted && !_isRecording) {
-        _loadNodes();
-        _checkAllPermissions();
-      }
-    });
   }
 
   Future<void> _requestNotificationPermissionOnStartup() async {
@@ -97,7 +83,6 @@ class _TimelinePageState extends State<TimelinePage> {
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
     _recordingTimer?.cancel();
     _voiceTitleController.dispose();
     _audioPlayer?.dispose();
@@ -174,9 +159,6 @@ class _TimelinePageState extends State<TimelinePage> {
   void _openEditNodeSheet(MemoryNode node) {
     final titleCtrl = TextEditingController(text: node.title);
     final contentCtrl = TextEditingController(text: node.content);
-    final metadataCtrl = TextEditingController(
-      text: const JsonEncoder.withIndent('  ').convert(node.metadata),
-    );
 
     showModalBottomSheet(
       context: context,
@@ -210,14 +192,14 @@ class _TimelinePageState extends State<TimelinePage> {
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    'Edit Memory Details',
+                    'Edit entry',
                     style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Correct the stored title, notes, or metadata when a captured event needs cleanup.',
+                    'Update the stored title or notes for this entry.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: AppTheme.onSurfaceVariant,
                     ),
@@ -244,22 +226,6 @@ class _TimelinePageState extends State<TimelinePage> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: metadataCtrl,
-                    maxLines: 6,
-                    style: const TextStyle(
-                      fontFamily: 'JetBrains Mono',
-                      fontSize: 12,
-                    ),
-                    decoration: InputDecoration(
-                      labelText: 'Metadata JSON',
-                      alignLabelWithHint: true,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
                   const SizedBox(height: 20),
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
@@ -273,42 +239,17 @@ class _TimelinePageState extends State<TimelinePage> {
                     onPressed: () async {
                       final title = titleCtrl.text.trim();
                       final content = contentCtrl.text.trim();
-                      if (title.isEmpty || content.isEmpty) {
+                      if (title.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('Title and details are required.'),
-                          ),
-                        );
-                        return;
-                      }
-
-                      Map<String, dynamic> metadata;
-                      try {
-                        final decoded = jsonDecode(metadataCtrl.text);
-                        if (decoded is! Map) {
-                          throw const FormatException(
-                            'Metadata must be a JSON object.',
-                          );
-                        }
-                        metadata = decoded.map(
-                          (key, value) => MapEntry(key.toString(), value),
-                        );
-                      } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Metadata JSON is invalid: $e'),
-                            backgroundColor: AppTheme.error,
+                            content: Text('Title is required.'),
                           ),
                         );
                         return;
                       }
 
                       await DatabaseService.instance.updateNode(
-                        node.copyWith(
-                          title: title,
-                          content: content,
-                          metadata: metadata,
-                        ),
+                        node.copyWith(title: title, content: content),
                       );
                       if (!mounted || !context.mounted) return;
                       Navigator.pop(context);
@@ -316,13 +257,13 @@ class _TimelinePageState extends State<TimelinePage> {
                       if (!mounted) return;
                       ScaffoldMessenger.of(this.context).showSnackBar(
                         const SnackBar(
-                          content: Text('Memory details updated.'),
+                          content: Text('Entry updated.'),
                           backgroundColor: AppTheme.contextGreen,
                         ),
                       );
                     },
                     icon: const Icon(Icons.save, size: 18),
-                    label: const Text('Save Corrections'),
+                    label: const Text('Save'),
                   ),
                 ],
               ),
@@ -333,7 +274,6 @@ class _TimelinePageState extends State<TimelinePage> {
     ).whenComplete(() {
       titleCtrl.dispose();
       contentCtrl.dispose();
-      metadataCtrl.dispose();
     });
   }
 
@@ -512,13 +452,11 @@ class _TimelinePageState extends State<TimelinePage> {
   Future<void> _checkAllPermissions() async {
     final mic = await CaptureService.instance.checkPermission('voice_note');
     final loc = await CaptureService.instance.checkPermission('location');
-    final cal = await CaptureService.instance.checkPermission('calendar');
     final notif = await CaptureService.instance.checkPermission('notification');
     final photo = await CaptureService.instance.checkPermission('photo');
     final bluetooth = await CaptureService.instance.checkPermission(
       'bluetooth',
     );
-    final reading = await CaptureService.instance.checkPermission('reading');
     final bgListening = await CaptureService.instance.checkPermission(
       'background_listening',
     );
@@ -531,23 +469,18 @@ class _TimelinePageState extends State<TimelinePage> {
         _permissionsGranted = {
           'voice_note': mic,
           'location': loc,
-          'calendar': cal,
           'notification': notif,
           'photo': photo,
           'bluetooth': bluetooth,
-          'reading': reading,
           'background_listening': bgListening,
           'battery_optimization': batteryOpt,
         };
-        // Show banner if any permission is missing
         _showPermissionsBanner =
             !mic ||
             !loc ||
-            !cal ||
             !notif ||
             !photo ||
             !bluetooth ||
-            !reading ||
             !bgListening ||
             !batteryOpt;
       });
@@ -589,14 +522,14 @@ class _TimelinePageState extends State<TimelinePage> {
                       ),
                       const SizedBox(height: 20),
                       Text(
-                        'On-Device Stream Setup',
+                        'Permissions setup',
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Configure required local stream components below. Data is kept 100% locally encrypted and isolated.',
+                        'Choose which sources MemoryOS can read. Everything is stored locally on this phone.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: AppTheme.onSurfaceVariant,
                         ),
@@ -605,64 +538,50 @@ class _TimelinePageState extends State<TimelinePage> {
 
                       _buildPermissionRow(
                         'voice_note',
-                        'Microphone Audio',
-                        'Used to record audio voice notes and local transcribers.',
+                        'Microphone',
+                        'Used to record voice notes as audio files.',
                         Icons.mic,
                         setModalState,
                       ),
                       _buildPermissionRow(
                         'location',
-                        'Location Stream',
-                        'Collects privacy-first coarse anonymized location coordinates.',
+                        'Location',
+                        'Records periodic device coordinates every 4 hours.',
                         Icons.location_on,
                         setModalState,
                       ),
                       _buildPermissionRow(
-                        'calendar',
-                        'Calendar Schedules',
-                        'Parses upcoming local device events and meeting timelines.',
-                        Icons.calendar_today,
-                        setModalState,
-                      ),
-                      _buildPermissionRow(
                         'notification',
-                        'Notifications Interception',
-                        'Requires "Notification Access" permission in Android settings to capture alerts.',
+                        'Notifications',
+                        'Requires Notification Access in Android settings to capture alerts.',
                         Icons.notifications,
                         setModalState,
                       ),
                       _buildPermissionRow(
                         'photo',
-                        'Storage / Photo Gallery',
-                        'Scans files, tax receipts, and photos for local OCR indexers.',
+                        'Screenshots',
+                        'Records filenames of newly saved screenshots.',
                         Icons.photo_library,
                         setModalState,
                       ),
                       _buildPermissionRow(
                         'bluetooth',
-                        'Bluetooth Scan',
-                        'Detects paired Bluetooth devices to reconstruct surrounding context.',
+                        'Bluetooth',
+                        'Records connected and disconnected Bluetooth devices.',
                         Icons.bluetooth,
                         setModalState,
                       ),
                       _buildPermissionRow(
-                        'reading',
-                        'Clipboard Snippets',
-                        'Enables reading from clipboard to save snippets as "reading" entries.',
-                        Icons.content_paste,
-                        setModalState,
-                      ),
-                      _buildPermissionRow(
                         'background_listening',
-                        'Persistent Background Activity',
-                        'Allows stream monitoring and notifications history to run in the background.',
+                        'Background activity',
+                        'Allows capture to stay active in the background.',
                         Icons.battery_saver,
                         setModalState,
                       ),
                       _buildPermissionRow(
                         'battery_optimization',
-                        'Battery Optimization Exemption',
-                        'Aggressive OS battery optimization kills offline streams. Set to Unrestricted.',
+                        'Battery exemption',
+                        'Set MemoryOS to Unrestricted so Android does not stop background capture.',
                         Icons.battery_charging_full,
                         setModalState,
                       ),
@@ -988,7 +907,7 @@ class _TimelinePageState extends State<TimelinePage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'For everyday context reconstruction, MemoryOS runs strictly offline and needs native device streams. Some permissions are not yet configured.',
+            'MemoryOS runs locally on this phone. Some source permissions are not yet enabled.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: AppTheme.onSurfaceVariant,
               height: 1.35,
@@ -1007,7 +926,7 @@ class _TimelinePageState extends State<TimelinePage> {
             onPressed: _openPermissionsGuideSheet,
             icon: const Icon(Icons.settings, size: 16),
             label: const Text(
-              'Configure Stream Permissions',
+              'Configure permissions',
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontWeight: FontWeight.w600,
@@ -1059,14 +978,14 @@ class _TimelinePageState extends State<TimelinePage> {
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      'Ingest Local Memory Node',
+                      'Add note',
                       style: theme.textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Type whatever is on your mind. MemoryOS will automatically analyze it and save it locally.',
+                      'Write a note to save it locally on this phone.',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: AppTheme.onSurfaceVariant,
                       ),
@@ -1078,9 +997,8 @@ class _TimelinePageState extends State<TimelinePage> {
                       maxLines: 4,
                       autofocus: true,
                       decoration: InputDecoration(
-                        labelText: 'Write your memory details...',
-                        hintText:
-                            'e.g. Discussed NMC solar battery anodes efficiency with brother today...',
+                        labelText: 'Note',
+                        hintText: 'Write what happened...',
                         alignLabelWithHint: true,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -1110,13 +1028,12 @@ class _TimelinePageState extends State<TimelinePage> {
                         if (content.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text('Please write some details first.'),
+                              content: Text('Please write a note first.'),
                             ),
                           );
                           return;
                         }
 
-                        // Auto extract title (first 5 words or first 40 chars)
                         final words = content.split(RegExp(r'\s+'));
                         final title = words.length > 5
                             ? '${words.take(5).join(' ')}...'
@@ -1131,22 +1048,23 @@ class _TimelinePageState extends State<TimelinePage> {
                             'isManual': true,
                             'characterCount': content.length,
                           },
-                          trail: DatabaseService.classifyTrail(title, content),
+                          trail: 'none',
                         );
 
                         await DatabaseService.instance.insertNode(node);
+                        if (!context.mounted) return;
                         Navigator.pop(context);
                         _loadNodes();
 
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        ScaffoldMessenger.of(this.context).showSnackBar(
                           SnackBar(
-                            content: Text('Saved to secure enclave: "$title"'),
+                            content: Text('Saved: "$title"'),
                             backgroundColor: AppTheme.contextGreen,
                           ),
                         );
                       },
                       child: const Text(
-                        'Save Memory Node',
+                        'Save note',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),
@@ -1192,17 +1110,15 @@ class _TimelinePageState extends State<TimelinePage> {
                       ),
                       const SizedBox(height: 24),
                       Text(
-                        _isRecording
-                            ? 'Listening Passively'
-                            : 'Record Local Voice Note',
+                        _isRecording ? 'Recording' : 'Record voice note',
                         style: Theme.of(context).textTheme.headlineSmall
                             ?.copyWith(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         _isRecording
-                            ? 'Capturing audio in a hardware-encrypted local enclave'
-                            : 'Voice inputs are transcribed on-device and kept strictly offline',
+                            ? 'Recording audio locally on this phone'
+                            : 'Saved as an audio file on this phone. No transcription yet.',
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppTheme.onSurfaceVariant,
@@ -1291,14 +1207,25 @@ class _TimelinePageState extends State<TimelinePage> {
                             final granted = await CaptureService.instance
                                 .requestPermission('voice_note');
                             if (granted) {
-                              setModalState(() {
-                                _isRecording = true;
-                                _secondsRecorded = 0;
-                                _recordingTime = "00:00";
-                              });
-                              await CaptureService.instance.startRecording();
-                              _startRecordingTimer(setModalState);
-                            } else {
+                              final started = await CaptureService.instance
+                                  .startRecording();
+                              if (started) {
+                                setModalState(() {
+                                  _isRecording = true;
+                                  _secondsRecorded = 0;
+                                  _recordingTime = "00:00";
+                                });
+                                _startRecordingTimer(setModalState);
+                              } else if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Could not start audio recording.',
+                                    ),
+                                  ),
+                                );
+                              }
+                            } else if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text(
@@ -1313,12 +1240,11 @@ class _TimelinePageState extends State<TimelinePage> {
                             children: [
                               Icon(Icons.mic),
                               SizedBox(width: 8),
-                              Text('Initialize Enclave Mic'),
+                              Text('Start recording'),
                             ],
                           ),
                         ),
                       ] else ...[
-                        // Stop & Ingest Button
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.error,
@@ -1338,15 +1264,14 @@ class _TimelinePageState extends State<TimelinePage> {
                               _isRecording = false;
                             });
                             _voiceTitleController.clear();
+                            if (!context.mounted) return;
                             Navigator.pop(context);
 
                             if (node != null) {
                               _loadNodes();
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              ScaffoldMessenger.of(this.context).showSnackBar(
                                 SnackBar(
-                                  content: Text(
-                                    'Transcribed offline: "${node.title}"',
-                                  ),
+                                  content: Text('Saved voice note: "${node.title}"'),
                                   backgroundColor: AppTheme.contextGreen,
                                 ),
                               );
@@ -1357,7 +1282,7 @@ class _TimelinePageState extends State<TimelinePage> {
                             children: [
                               Icon(Icons.stop),
                               SizedBox(width: 8),
-                              Text('Stop & Ingest Memory'),
+                              Text('Stop and save'),
                             ],
                           ),
                         ),
@@ -1430,7 +1355,7 @@ class _TimelinePageState extends State<TimelinePage> {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          'SYNCHRONIZED VIA LOCAL NODE',
+                          'STORED LOCALLY ON THIS PHONE',
                           style: theme.textTheme.labelSmall?.copyWith(
                             letterSpacing: 0.8,
                           ),
@@ -1978,7 +1903,7 @@ class _TimelinePageState extends State<TimelinePage> {
         );
 
       case 'voice_note':
-        final durationText = node.metadata['duration'] ?? '0:00';
+        final durationText = node.metadata['duration']?.toString() ?? '0:00';
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0),
           child: Column(
@@ -1992,7 +1917,6 @@ class _TimelinePageState extends State<TimelinePage> {
                 ),
               ),
               const SizedBox(height: 12),
-              // Waveform representation
               Row(
                 children: [
                   IconButton(
@@ -2006,18 +1930,11 @@ class _TimelinePageState extends State<TimelinePage> {
                       color: AppTheme.primary,
                     ),
                     onPressed: () async {
-                      final filePath = node.metadata['filePath'];
-                      final isFallback =
-                          node.metadata['isFallback'] == true ||
-                          filePath == null ||
-                          filePath == 'enclave_buffer';
-
-                      if (isFallback) {
+                      final filePath = node.metadata['filePath']?.toString();
+                      if (filePath == null || filePath.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text(
-                              'Audio playback not supported for mock/simulated notes.',
-                            ),
+                            content: Text('No audio file attached to this note.'),
                             backgroundColor: AppTheme.error,
                           ),
                         );
@@ -2040,12 +1957,14 @@ class _TimelinePageState extends State<TimelinePage> {
                           await _audioPlayer?.play(DeviceFileSource(filePath));
                         }
                       } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Error playing audio: $e'),
-                            backgroundColor: AppTheme.error,
-                          ),
-                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Error playing audio: $e'),
+                              backgroundColor: AppTheme.error,
+                            ),
+                          );
+                        }
                       }
                     },
                   ),
@@ -2066,7 +1985,7 @@ class _TimelinePageState extends State<TimelinePage> {
                             decoration: BoxDecoration(
                               color: isCurrentPlayingNode
                                   ? AppTheme.primary
-                                  : AppTheme.primary.withOpacity(0.4),
+                                  : AppTheme.primary.withValues(alpha: 0.4),
                               borderRadius: BorderRadius.circular(1),
                             ),
                           );
@@ -2077,22 +1996,6 @@ class _TimelinePageState extends State<TimelinePage> {
                   const SizedBox(width: 8),
                   Text(durationText, style: theme.textTheme.labelSmall),
                 ],
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.surfaceDim,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.black.withOpacity(0.03)),
-                ),
-                child: Text(
-                  '"${node.content}"',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontStyle: FontStyle.italic,
-                    color: AppTheme.onSurfaceVariant,
-                  ),
-                ),
               ),
             ],
           ),

@@ -1,45 +1,21 @@
-# memoryOS
+# MemoryOS
 
-A Flutter app that passively logs activity from your phone into a local timeline, so you can look back at what you did, where you were and what you heard or read. The Android side does most of the capture work.
+An Android Flutter app that records phone activity into a local SQLite database on the device. Nothing is uploaded.
 
-## Features
+## What it does right now (M0)
 
-- Seven capture sources, each toggled individually on the Sources screen: voice notes, location, calendar, notifications, Bluetooth, photos (screenshots) and reading (clipboard).
-- Android background capture through a persistent foreground service and a notification listener service written in Kotlin.
-- Every capture is stored as a "memory node" (source, content, metadata) in a local SQLite database on the device.
-- Four screens: Timeline, Insights, Sources and Threads (related memories grouped into trails).
-- Voice recorder falls back to a simulation mode when microphone permission or native audio is unavailable.
-
-## Tech stack
-
-Flutter (Dart SDK ^3.12), `sqflite`, `permission_handler`, `record`, `flutter_background`, `audioplayers`, `path_provider`, `intl`, `google_fonts`. Android native code in Kotlin under `android/app/src/main/kotlin`.
+- Captures incoming Android notifications (with marketing and screenshot-capture filtering), Bluetooth device connections, periodic location coordinates, screenshot filenames, manual notes and voice notes (audio only, no transcription yet).
+- Stores captured entries locally in SQLite with soft delete and automatic 30-day purge.
+- Two screens while the v2 redesign is underway: **Timeline** (day view, manual notes, voice recording, deleted items) and **Sources** (per-source switches and battery exemption guide).
 
 ## Getting started
 
-Prerequisites: the Flutter SDK matching `pubspec.yaml` and an Android device or emulator (the capture services rely on Android-specific permissions and services).
+Prerequisites: Flutter SDK matching `pubspec.yaml` and an Android device or emulator.
 
 ```sh
 flutter pub get
-flutter run
-```
-
-On first use, grant the permissions for the sources you turn on (microphone, location including background location, calendar, notifications access, Bluetooth, photos). Notification capture also requires enabling notification access for the app in Android settings. For long-running capture, allow the app to ignore battery optimizations.
-
-## Tests
-
-```sh
 flutter test
+flutter build apk --debug
 ```
 
-Unit tests in `test/` cover capture metadata, location capture policy and metadata, the insight aggregator and the memory node model.
-
-## Project structure
-
-```
-lib/models/     memory node model
-lib/services/   capture service, SQLite database service, metadata and insight logic
-lib/screens/    Timeline, Insights, Sources, Threads and the app shell
-android/        Kotlin persistent service, notification listener, screenshot observer, SQLite helper
-```
-
-Platform folders for iOS, web, Windows, macOS and Linux are the default Flutter scaffolding; the capture features are implemented for Android.
+Everything runs on the phone. There is no server, no sync, no encryption yet, and no AI model.

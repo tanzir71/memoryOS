@@ -1,23 +1,12 @@
 package com.memoryos.memoryos
 
 import android.app.Notification
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.graphics.Bitmap
-import android.graphics.drawable.BitmapDrawable
-import android.graphics.drawable.Icon
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import org.json.JSONObject
-import java.io.File
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -25,120 +14,19 @@ class NotificationListener : NotificationListenerService() {
     private val TAG = "NotificationListener"
 
     companion object {
-        // High-precision concurrent map for sliding-window notification deduplication
         private val lastNotificationTimes = ConcurrentHashMap<String, Long>()
     }
 
-    // Passive BroadcastReceiver to capture Bluetooth connection/adapter state events
-    private val bluetoothReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val action = intent.action ?: return
-            try {
-                when (action) {
-                    BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                        val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                        val deviceName = try {
-                            device?.name ?: "Unknown Device"
-                        } catch (e: SecurityException) {
-                            "Unknown Device (Permission Missing)"
-                        }
-                        val deviceAddress = device?.address ?: "Unknown Address"
-                        Log.d(TAG, "Bluetooth Connection Detected: $deviceName ($deviceAddress)")
-
-                        val metadata = JSONObject().apply {
-                            put("deviceName", deviceName)
-                            put("deviceAddress", deviceAddress)
-                            put("bluetoothEvent", "connected")
-                        }
-
-                        DatabaseHelper.insertNode(
-                            context = context.applicationContext,
-                            title = "Bluetooth Connected",
-                            content = "Connected to device: $deviceName ($deviceAddress)",
-                            source = "bluetooth",
-                            metadata = metadata,
-                            trail = "none"
-                        )
-                    }
-                    BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-                        val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                        val deviceName = try {
-                            device?.name ?: "Unknown Device"
-                        } catch (e: SecurityException) {
-                            "Unknown Device (Permission Missing)"
-                        }
-                        val deviceAddress = device?.address ?: "Unknown Address"
-                        Log.d(TAG, "Bluetooth Disconnection Detected: $deviceName ($deviceAddress)")
-
-                        val metadata = JSONObject().apply {
-                            put("deviceName", deviceName)
-                            put("deviceAddress", deviceAddress)
-                            put("bluetoothEvent", "disconnected")
-                        }
-
-                        DatabaseHelper.insertNode(
-                            context = context.applicationContext,
-                            title = "Bluetooth Disconnected",
-                            content = "Disconnected from device: $deviceName ($deviceAddress)",
-                            source = "bluetooth",
-                            metadata = metadata,
-                            trail = "none"
-                        )
-                    }
-                    BluetoothAdapter.ACTION_STATE_CHANGED -> {
-                        val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
-                        val stateStr = when (state) {
-                            BluetoothAdapter.STATE_OFF -> "OFF"
-                            BluetoothAdapter.STATE_ON -> "ON"
-                            BluetoothAdapter.STATE_TURNING_OFF -> "TURNING OFF"
-                            BluetoothAdapter.STATE_TURNING_ON -> "TURNING ON"
-                            else -> "UNKNOWN"
-                        }
-                        Log.d(TAG, "Bluetooth Adapter State Changed: $stateStr")
-
-                        val metadata = JSONObject().apply {
-                            put("bluetoothState", stateStr)
-                            put("bluetoothEvent", "adapter_state_changed")
-                        }
-
-                        DatabaseHelper.insertNode(
-                            context = context.applicationContext,
-                            title = "Bluetooth Adapter State",
-                            content = "Bluetooth adapter is now $stateStr",
-                            source = "bluetooth",
-                            metadata = metadata,
-                            trail = "none"
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error processing Bluetooth broadcast: ${e.message}", e)
-            }
-        }
-    }
-
-    override fun onCreate() {
-        super.onCreate()
-        Log.d(TAG, "NotificationListener Service created.")
-    }
-
-    override fun onDestroy() {
-        Log.d(TAG, "NotificationListener Service destroyed.")
-        super.onDestroy()
-    }
-
     override fun onListenerConnected() {
-        Log.d(TAG, "Notification listener connected successfully. Synchronizing existing status bar items...")
         try {
             val activeNotifications = activeNotifications
             if (activeNotifications != null) {
-                Log.d(TAG, "Syncing active notifications: ${activeNotifications.size} found.")
                 for (sbn in activeNotifications) {
                     onNotificationPosted(sbn)
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error in onListenerConnected while reading active notifications: ${e.message}", e)
+            Log.e(TAG, "Error in onListenerConnected: ${e.message}", e)
         }
     }
 
@@ -148,8 +36,7 @@ class NotificationListener : NotificationListenerService() {
             val info = pm.getApplicationInfo(packageName, 0)
             val label = pm.getApplicationLabel(info).toString()
             if (label.isNotEmpty()) return label
-        } catch (e: Exception) {
-            // Fall through
+        } catch (_: Exception) {
         }
 
         return when (packageName) {
@@ -159,7 +46,6 @@ class NotificationListener : NotificationListenerService() {
             "com.facebook.katana" -> "Facebook"
             "com.facebook.orca" -> "Messenger"
             "com.instagram.android" -> "Instagram"
-            "com.twitter.android" -> "Twitter"
             "com.slack" -> "Slack"
             "com.microsoft.teams" -> "Teams"
             "com.google.android.apps.messaging" -> "Messages"
@@ -168,7 +54,9 @@ class NotificationListener : NotificationListenerService() {
             else -> {
                 val parts = packageName.split(".")
                 if (parts.isNotEmpty()) {
-                    parts.last().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                    parts.last().replaceFirstChar {
+                        if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
+                    }
                 } else {
                     packageName
                 }
@@ -192,7 +80,7 @@ class NotificationListener : NotificationListenerService() {
 
         val lines = try {
             extras.getCharSequenceArray("android.textLines")
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
 
@@ -207,6 +95,7 @@ class NotificationListener : NotificationListenerService() {
     private fun collectAnyTextFromExtras(extras: Bundle, title: String): String {
         val collected = mutableListOf<String>()
         for (key in extras.keySet().sorted()) {
+            @Suppress("DEPRECATION")
             val value = extras.get(key)
             when (value) {
                 is CharSequence -> {
@@ -246,9 +135,7 @@ class NotificationListener : NotificationListenerService() {
             titleLower.contains("samsung capture") ||
             titleLower.contains("screenshot")
 
-        if (!looksLikeCaptureSurface) {
-            return false
-        }
+        if (!looksLikeCaptureSurface) return false
 
         return haystack.contains("screenshot") ||
             haystack.contains("screen shot") ||
@@ -292,24 +179,11 @@ class NotificationListener : NotificationListenerService() {
 
         try {
             val packageName = sbn.packageName ?: "unknown"
+            if (packageName == this.packageName) return
 
-            // Skip notifications from our own app to avoid recursive recording
-            if (packageName == this.packageName) {
-                return
-            }
-
-            // Check if notification recording is enabled in preferences
             val sharedPref = getSharedPreferences("memoryos_prefs", Context.MODE_PRIVATE)
-            val isListeningPaused = sharedPref.getBoolean("listening_paused", false)
-            if (isListeningPaused) {
-                Log.d(TAG, "Notification capture is paused from foreground notification action. Skipping: $packageName")
-                return
-            }
-            val isNotificationEnabled = sharedPref.getBoolean("toggle_notification", false)
-            if (!isNotificationEnabled) {
-                Log.d(TAG, "Notification capture is disabled in native settings. Skipping: $packageName")
-                return
-            }
+            if (sharedPref.getBoolean("listening_paused", false)) return
+            if (!sharedPref.getBoolean("toggle_notification", false)) return
 
             val extras = sbn.notification.extras ?: Bundle()
             val title = firstNonEmptyText(
@@ -320,13 +194,10 @@ class NotificationListener : NotificationListenerService() {
             var text = extractNotificationBodyText(extras)
             val channelId = sbn.notification.channelId ?: "default"
 
-            if (isSystemScreenshotNotification(packageName, channelId, title, text)) {
-                Log.d(TAG, "Skipping duplicate System UI screenshot notification.")
-                return
-            }
+            if (isSystemScreenshotNotification(packageName, channelId, title, text)) return
 
-            // Safe fallback for complex MessagingStyle notifications (e.g. Gmail or WhatsApp)
             if (extras.containsKey(Notification.EXTRA_MESSAGES)) {
+                @Suppress("DEPRECATION")
                 val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
                 if (messages != null && messages.isNotEmpty()) {
                     val messageTextBuilder = StringBuilder()
@@ -349,7 +220,6 @@ class NotificationListener : NotificationListenerService() {
                 }
             }
 
-            // Extract rich metadata texts if standard text is empty
             if (text.isEmpty()) {
                 text = collectAnyTextFromExtras(extras, title)
             }
@@ -362,9 +232,6 @@ class NotificationListener : NotificationListenerService() {
             val combinedText = "$title $text"
             val isShortWindowStatus = isShortWindowStatusLikeNotification(packageName, channelId, combinedText)
 
-            // High-precision deduplication window to filter out duplicate/updated streams.
-            // Ongoing status notifications, like charging, are keyed by their stable
-            // Android notification key so text changes do not create repeat memories.
             val uniqueKey = if (isOngoing) {
                 "ongoing:${sbn.key ?: "$packageName:$channelId:$title"}"
             } else if (isShortWindowStatus) {
@@ -381,18 +248,12 @@ class NotificationListener : NotificationListenerService() {
             } else {
                 3000L
             }
-            if (now - lastTime < dedupeWindowMs) {
-                Log.d(TAG, "Deduplicated rapid-fire notification event for key: $uniqueKey")
-                return
-            }
-            
-            // Housekeep map if it gets too large
+            if (now - lastTime < dedupeWindowMs) return
+
             if (lastNotificationTimes.size > 200) {
                 lastNotificationTimes.entries.removeIf { now - it.value > 10000 }
             }
             lastNotificationTimes[uniqueKey] = now
-
-            Log.d(TAG, "Notification Intercepted: package=$packageName, title=$title, text=$text, ongoing=$isOngoing")
 
             val metadata = JSONObject().apply {
                 put("packageName", packageName)
@@ -404,24 +265,6 @@ class NotificationListener : NotificationListenerService() {
                 put("isOngoing", isOngoing)
             }
 
-            // Issue 2: Extract large icon and big picture Bitmaps safely, handling URI permissions if necessary
-            val bitmap = getNotificationBitmap(applicationContext, sbn.notification)
-            if (bitmap != null) {
-                val fileName = "notification_${sbn.postTime}_${sbn.id}.png"
-                val targetFile = File(applicationContext.cacheDir, fileName)
-                try {
-                    targetFile.outputStream().use { out ->
-                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    }
-                    metadata.put("filePath", targetFile.absolutePath)
-                    metadata.put("hasImage", true)
-                    Log.d(TAG, "Successfully extracted and cached image to: ${targetFile.absolutePath}")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to write extracted notification image to file: ${e.message}", e)
-                }
-            }
-
-            val trail = classifyTrailInKotlin(title, text)
             val friendlyApp = getFriendlyAppLabel(packageName)
             val prefix = if (isOngoing) "[Ongoing] " else ""
             val friendlyTitle = if (title.isNotEmpty()) "$prefix$friendlyApp: $title" else "$prefix$friendlyApp"
@@ -432,119 +275,10 @@ class NotificationListener : NotificationListenerService() {
                 content = text.ifEmpty { "Received alert from $friendlyApp" },
                 source = "notification",
                 metadata = metadata,
-                trail = trail
+                trail = "none"
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error processing notification posted: ${e.message}", e)
-        }
-    }
-
-    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-        if (sbn == null) return
-
-        val packageName = sbn.packageName ?: "unknown"
-        if (packageName != this.packageName) {
-            Log.d(TAG, "Notification removed ignored: package=$packageName")
-        }
-    }
-
-    // Safely extract Bitmap from various notification properties
-    private fun getNotificationBitmap(context: Context, notification: Notification): Bitmap? {
-        val extras = notification.extras ?: return null
-
-        // 1. Try EXTRA_PICTURE (Direct Bitmap)
-        try {
-            val picture = extras.get(Notification.EXTRA_PICTURE)
-            if (picture is Bitmap) return picture
-        } catch (e: Exception) {
-            // Ignore
-        }
-
-        // 2. Try EXTRA_PICTURE_ICON (Android 12+ / API 31+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                val pictureIcon = extras.get(Notification.EXTRA_PICTURE_ICON)
-                if (pictureIcon is Icon) {
-                    val bitmap = extractBitmapFromIcon(context, pictureIcon)
-                    if (bitmap != null) return bitmap
-                }
-            } catch (e: Exception) {
-                // Ignore
-            }
-        }
-
-        // 3. Try EXTRA_LARGE_ICON (Bitmap or Icon)
-        try {
-            val largeIcon = extras.get(Notification.EXTRA_LARGE_ICON)
-            if (largeIcon is Bitmap) {
-                return largeIcon
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && largeIcon is Icon) {
-                val bitmap = extractBitmapFromIcon(context, largeIcon)
-                if (bitmap != null) return bitmap
-            }
-        } catch (e: Exception) {
-            // Ignore
-        }
-
-        // 4. Try EXTRA_LARGE_ICON_BIG (Bitmap or Icon)
-        try {
-            val largeIconBig = extras.get("android.largeIcon.big")
-            if (largeIconBig is Bitmap) {
-                return largeIconBig
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && largeIconBig is Icon) {
-                val bitmap = extractBitmapFromIcon(context, largeIconBig)
-                if (bitmap != null) return bitmap
-            }
-        } catch (e: Exception) {
-            // Ignore
-        }
-
-        // 5. Try background image URI
-        try {
-            val bgUriStr = extras.getString("android.backgroundImageUri")
-            if (!bgUriStr.isNullOrEmpty()) {
-                val uri = Uri.parse(bgUriStr)
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    return android.graphics.BitmapFactory.decodeStream(stream)
-                }
-            }
-        } catch (e: Exception) {
-            // Ignore
-        }
-
-        return null
-    }
-
-    private fun extractBitmapFromIcon(context: Context, icon: Icon): Bitmap? {
-        try {
-            val drawable = icon.loadDrawable(context) ?: return null
-            if (drawable is BitmapDrawable) {
-                return drawable.bitmap
-            }
-            val bitmap = Bitmap.createBitmap(
-                drawable.intrinsicWidth.coerceAtLeast(1),
-                drawable.intrinsicHeight.coerceAtLeast(1),
-                Bitmap.Config.ARGB_8888
-            )
-            val canvas = android.graphics.Canvas(bitmap)
-            drawable.setBounds(0, 0, canvas.width, canvas.height)
-            drawable.draw(canvas)
-            return bitmap
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to load/draw Icon drawable: ${e.message}", e)
-        }
-        return null
-    }
-
-    private fun classifyTrailInKotlin(title: String, content: String): String {
-        val text = "$title $content".lowercase()
-        return when {
-            text.contains("tax") || text.contains("insurance") || text.contains("policy") || text.contains("invoice") || text.contains("receipt") -> "tax"
-            text.contains("solar") || text.contains("battery") || text.contains("inverter") || text.contains("cabling") -> "project_memory"
-            text.contains("health") || text.contains("medical") || text.contains("exercise") || text.contains("gym") || text.contains("workout") -> "health"
-            text.contains("brother") || text.contains("mom") || text.contains("dad") || text.contains("wife") || text.contains("shared") || text.contains("family") -> "relationship_memory"
-            text.contains("work") || text.contains("office") || text.contains("meeting") || text.contains("task") -> "work"
-            else -> "none"
         }
     }
 }

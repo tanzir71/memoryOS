@@ -22,7 +22,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.telephony.TelephonyManager
 import android.util.Log
 import org.json.JSONObject
 import java.util.Locale
@@ -71,10 +70,10 @@ class PersistentService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
-                    "MemoryOS Passive Enclave",
+                    "MemoryOS Capture",
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
-                    description = "Active passive stream tracker indicator"
+                    description = "Capture status indicator"
                     setShowBadge(false)
                 }
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -160,8 +159,7 @@ class PersistentService : Service() {
                 "photo" to "Screenshots",
                 "location" to "Location",
                 "bluetooth" to "Bluetooth",
-                "calendar" to "Calendar",
-                "reading" to "Clipboard"
+                "calendar" to "Calendar"
             ).filter { (key, _) -> sharedPref.getBoolean("toggle_$key", false) }
                 .joinToString(", ") { (_, label) -> label }
 
@@ -466,9 +464,7 @@ class PersistentService : Service() {
 
     private fun nextLocationSampleDelayMs(): Long {
         val sharedPref = getSharedPreferences("memoryos_prefs", Context.MODE_PRIVATE)
-        val lastDeviceAt = sharedPref.getLong("last_location_capture_at", 0L)
-        val lastCellAt = sharedPref.getLong("last_cell_location_capture_at", 0L)
-        val lastSampleAt = maxOf(lastDeviceAt, lastCellAt)
+        val lastSampleAt = sharedPref.getLong("last_location_capture_at", 0L)
 
         if (lastSampleAt == 0L) return LOCATION_SAMPLE_INTERVAL_MS
 
@@ -485,7 +481,6 @@ class PersistentService : Service() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Unable to access LocationManager for scheduled sample: ${e.message}", e)
-            recordCellTowerSnapshot("${event}_cell_tower")
             return
         }
 
@@ -498,17 +493,15 @@ class PersistentService : Service() {
         val bestLocation = (listOfNotNull(latestObservedLocation) + providers.mapNotNull { provider ->
             try {
                 manager.getLastKnownLocation(provider)
-            } catch (e: SecurityException) {
+            } catch (_: SecurityException) {
                 null
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 null
             }
         }).maxByOrNull { it.time }
 
         if (bestLocation != null) {
             recordLocation(bestLocation, event)
-        } else {
-            recordCellTowerSnapshot("${event}_cell_tower")
         }
     }
 
@@ -572,63 +565,6 @@ class PersistentService : Service() {
             metadata = metadata,
             trail = "none"
         )
-    }
-
-    private fun recordCellTowerSnapshot(event: String) {
-        val sharedPref = getSharedPreferences("memoryos_prefs", Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        val lastAt = maxOf(
-            sharedPref.getLong("last_location_capture_at", 0L),
-            sharedPref.getLong("last_cell_location_capture_at", 0L)
-        )
-        val minSpacing = if (event.startsWith("scheduled_")) {
-            LOCATION_MIN_TIME_MS
-        } else {
-            LOCATION_SAMPLE_INTERVAL_MS
-        }
-        if (now - lastAt < minSpacing) {
-            return
-        }
-
-        try {
-            val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            val cells = telephonyManager.allCellInfo
-            if (cells.isNullOrEmpty()) {
-                Log.d(TAG, "No device location or cell tower data available for $event")
-                return
-            }
-
-            val primaryCell = cells.firstOrNull { it.isRegistered } ?: cells.first()
-            with(sharedPref.edit()) {
-                putLong("last_cell_location_capture_at", now)
-                apply()
-            }
-
-            val metadata = JSONObject().apply {
-                put("locationName", "Cell tower fallback")
-                put("provider", "cell_tower")
-                put("locationEvent", event)
-                put("fallbackReason", "device_location_unavailable")
-                put("sampleIntervalHours", LOCATION_SAMPLE_INTERVAL_MS / (60 * 60 * 1000L))
-                put("cellCount", cells.size)
-                put("cellTechnology", primaryCell.javaClass.simpleName.removePrefix("CellInfo"))
-                put("isRegisteredCell", primaryCell.isRegistered)
-                put("cellTowerSummary", primaryCell.toString().take(700))
-            }
-
-            DatabaseHelper.insertNode(
-                context = applicationContext,
-                title = "Cell tower fallback",
-                content = "Cell tower snapshot recorded because GPS/network location was unavailable.",
-                source = "location",
-                metadata = metadata,
-                trail = "none"
-            )
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Missing permission while reading cell tower fallback: ${e.message}", e)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to record cell tower fallback: ${e.message}", e)
-        }
     }
 
     private fun recordBluetoothEvent(

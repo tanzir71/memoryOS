@@ -20,7 +20,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
 
-    return await openDatabase(
+    return openDatabase(
       path,
       version: 6,
       onCreate: _createDB,
@@ -28,7 +28,7 @@ class DatabaseService {
     );
   }
 
-  Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
+  Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 5) {
       await db.execute('DROP TABLE IF EXISTS memory_nodes');
       await db.execute('DROP TABLE IF EXISTS settings');
@@ -38,7 +38,7 @@ class DatabaseService {
     }
   }
 
-  Future _createDB(Database db, int version) async {
+  Future<void> _createDB(Database db, int version) async {
     await db.execute('''
       CREATE TABLE memory_nodes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,12 +59,8 @@ class DatabaseService {
         value TEXT NOT NULL
       )
     ''');
-
-    // Pre-populate with beautiful high-fidelity mock data from the Stitch screens!
-    await _prepopulateData(db);
   }
 
-  // Settings Helper Functions
   Future<void> saveSetting(String key, String value) async {
     try {
       final db = await instance.database;
@@ -72,9 +68,7 @@ class DatabaseService {
         'key': key,
         'value': value,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
-    } catch (_) {
-      // Fallback silently if database is not initialized (e.g. in widget/unit tests)
-    }
+    } catch (_) {}
   }
 
   Future<String?> getSetting(String key) async {
@@ -88,88 +82,24 @@ class DatabaseService {
       if (maps.isNotEmpty) {
         return maps.first['value'] as String?;
       }
-    } catch (_) {
-      // Return null if table/key/database doesn't exist
-    }
+    } catch (_) {}
     return null;
-  }
-
-  // Auto-classify trail based on keywords
-  static String classifyTrail(String title, String content) {
-    final text = '$title $content'.toLowerCase();
-    if (text.contains('tax') ||
-        text.contains('insurance') ||
-        text.contains('brac') ||
-        text.contains('policy') ||
-        text.contains('invoice') ||
-        text.contains('receipt')) {
-      return 'tax';
-    }
-    if (text.contains('solar') ||
-        text.contains('battery') ||
-        text.contains('inverter') ||
-        text.contains('anode') ||
-        text.contains('efficiency') ||
-        text.contains('nanotube') ||
-        text.contains('cabling') ||
-        text.contains('lab')) {
-      return 'project_memory';
-    }
-    if (text.contains('health') ||
-        text.contains('medical') ||
-        text.contains('exercise') ||
-        text.contains('run') ||
-        text.contains('gym') ||
-        text.contains('doctor') ||
-        text.contains('hospital') ||
-        text.contains('workout')) {
-      return 'health';
-    }
-    if (text.contains('brother') ||
-        text.contains('mom') ||
-        text.contains('dad') ||
-        text.contains('wife') ||
-        text.contains('shared') ||
-        text.contains('quote') ||
-        text.contains('whatsapp') ||
-        text.contains('family')) {
-      return 'relationship_memory';
-    }
-    if (text.contains('work') ||
-        text.contains('office') ||
-        text.contains('meeting') ||
-        text.contains('journal') ||
-        text.contains('task') ||
-        text.contains('client')) {
-      return 'work';
-    }
-    return 'none';
   }
 
   Future<int> insertNode(MemoryNode node) async {
     final db = await instance.database;
-    // Auto-classify if trail is 'none' or empty
-    String trail = node.trail;
-    if (trail == 'none' || trail.isEmpty) {
-      trail = classifyTrail(node.title, node.content);
-    }
-
-    final updatedNode = node.copyWith(trail: trail);
-    return await db.insert('memory_nodes', updatedNode.toMap());
+    return db.insert('memory_nodes', node.toMap());
   }
 
   Future<int> updateNode(MemoryNode node) async {
     if (node.id == null) {
-      throw ArgumentError('Cannot update a memory node without an id.');
+      throw ArgumentError('Cannot update a record without an id.');
     }
 
     final db = await instance.database;
-    final trail = node.trail == 'none' || node.trail.isEmpty
-        ? classifyTrail(node.title, node.content)
-        : node.trail;
-    return await db.update(
+    return db.update(
       'memory_nodes',
-      node.copyWith(trail: trail).toMap()..remove('id'),
+      node.toMap()..remove('id'),
       where: 'id = ?',
       whereArgs: [node.id],
     );
@@ -208,18 +138,6 @@ class DatabaseService {
     return _visibleNodes(result.map((json) => MemoryNode.fromMap(json)));
   }
 
-  Future<List<MemoryNode>> fetchNodesByTrail(String trail) async {
-    final db = await instance.database;
-    await purgeExpiredDeletedNodes();
-    final result = await db.query(
-      'memory_nodes',
-      where: 'trail = ?',
-      whereArgs: [trail],
-      orderBy: 'timestamp DESC',
-    );
-    return _visibleNodes(result.map((json) => MemoryNode.fromMap(json)));
-  }
-
   Future<List<MemoryNode>> searchNodes(String query) async {
     final db = await instance.database;
     await purgeExpiredDeletedNodes();
@@ -232,167 +150,11 @@ class DatabaseService {
     return _visibleNodes(result.map((json) => MemoryNode.fromMap(json)));
   }
 
-  Future<List<String>> getDynamicThreads() async {
-    final nodes = await fetchAllNodes();
-    if (nodes.isEmpty) {
-      return [];
-    }
-
-    final stopWords = {
-      'the',
-      'a',
-      'an',
-      'and',
-      'or',
-      'but',
-      'to',
-      'of',
-      'in',
-      'for',
-      'with',
-      'on',
-      'at',
-      'by',
-      'from',
-      'is',
-      'was',
-      'were',
-      'are',
-      'have',
-      'has',
-      'had',
-      'this',
-      'that',
-      'these',
-      'those',
-      'read',
-      'note',
-      'recorded',
-      'completed',
-      'visited',
-      'about',
-      'issue',
-      'system',
-      'been',
-      'what',
-      'where',
-      'when',
-      'who',
-      'how',
-      'why',
-      'will',
-      'would',
-      'could',
-      'should',
-      'received',
-      'sent',
-      'shared',
-      'duration',
-      'active',
-      'session',
-      'your',
-      'then',
-      'than',
-      'them',
-      'their',
-      'there',
-      'they',
-      'just',
-      'more',
-      'some',
-      'only',
-      'other',
-      'into',
-      'over',
-      'also',
-      'after',
-      'before',
-      'each',
-      'many',
-      'very',
-      'such',
-      'much',
-      'same',
-      'both',
-      'through',
-      'under',
-      'between',
-      'during',
-      'saved',
-      'done',
-      'going',
-      'make',
-      'check',
-      'take',
-      'find',
-      'look',
-      'view',
-      'seen',
-      'show',
-      'keep',
-      'need',
-      'want',
-      'does',
-      'file',
-      'data',
-      'text',
-      'info',
-      'here',
-      'without',
-    };
-
-    final Map<String, int> counts = {};
-    // Extract alphanumeric words with length >= 3
-    final RegExp wordRegex = RegExp(r'\b[A-Za-z]{3,}\b');
-
-    for (final node in nodes) {
-      final combinedText = '${node.title} ${node.content}';
-      final matches = wordRegex.allMatches(combinedText);
-      for (final match in matches) {
-        final rawWord = match.group(0)!;
-        final lower = rawWord.toLowerCase();
-        if (stopWords.contains(lower)) continue;
-
-        // Standardize word title-casing to look clean and group proper nouns correctly
-        String formatted = rawWord;
-        if (rawWord[0] == rawWord[0].toUpperCase()) {
-          formatted = rawWord;
-        } else {
-          formatted = rawWord[0].toUpperCase() + rawWord.substring(1);
-        }
-
-        counts[formatted] = (counts[formatted] ?? 0) + 1;
-      }
-    }
-
-    // Sort by count descending
-    final sorted = counts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    // Gather unique top popular words (which are primarily nouns)
-    return sorted.map((e) => e.key).take(6).toList();
-  }
-
-  // Fetch nodes containing the dynamic noun keyword in their content or title
-  Future<List<MemoryNode>> fetchNodesByDynamicThread(String keyword) async {
-    final db = await instance.database;
-    await purgeExpiredDeletedNodes();
-    final result = await db.query(
-      'memory_nodes',
-      where: 'title LIKE ? OR content LIKE ?',
-      whereArgs: ['%$keyword%', '%$keyword%'],
-      orderBy: 'timestamp DESC',
-    );
-    return _visibleNodes(result.map((json) => MemoryNode.fromMap(json)));
-  }
-
-  Future<int> deleteNode(int id) async {
-    return softDeleteNode(id);
-  }
+  Future<int> deleteNode(int id) async => softDeleteNode(id);
 
   Future<int> softDeleteNode(int id) async {
     final db = await instance.database;
-    return await db.update(
+    return db.update(
       'memory_nodes',
       {'deleted_at': DateTime.now().toIso8601String()},
       where: 'id = ?',
@@ -402,7 +164,7 @@ class DatabaseService {
 
   Future<int> restoreNode(int id) async {
     final db = await instance.database;
-    return await db.update(
+    return db.update(
       'memory_nodes',
       {'deleted_at': null},
       where: 'id = ?',
@@ -412,7 +174,7 @@ class DatabaseService {
 
   Future<int> permanentlyDeleteNode(int id) async {
     final db = await instance.database;
-    return await db.delete('memory_nodes', where: 'id = ?', whereArgs: [id]);
+    return db.delete('memory_nodes', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<List<MemoryNode>> fetchDeletedNodes() async {
@@ -431,7 +193,7 @@ class DatabaseService {
     final cutoff = DateTime.now()
         .subtract(const Duration(days: 30))
         .toIso8601String();
-    return await db.delete(
+    return db.delete(
       'memory_nodes',
       where: 'deleted_at IS NOT NULL AND deleted_at <= ?',
       whereArgs: [cutoff],
@@ -443,9 +205,7 @@ class DatabaseService {
     final seenOngoingNotifications = <String>{};
     final recentSimilarNotifications = <String, DateTime>{};
     return nodes.where((node) {
-      if (node.deletedAt != null) {
-        return false;
-      }
+      if (node.deletedAt != null) return false;
 
       if (isMarketingNotificationRecord(
         source: node.source,
@@ -456,9 +216,8 @@ class DatabaseService {
         return false;
       }
 
-      if (isNotificationRemovalRecord(node.source)) {
-        return false;
-      }
+      if (isNotificationRemovalRecord(node.source)) return false;
+
       if (isScreenshotFileRecord(
         source: node.source,
         metadata: node.metadata,
@@ -508,10 +267,6 @@ class DatabaseService {
   Future<void> clearDatabase() async {
     final db = await instance.database;
     await db.delete('memory_nodes');
-  }
-
-  Future<void> _prepopulateData(Database db) async {
-    // Database is empty at first for real-world contextual recording
   }
 
   Future<void> _addColumnIfMissing(
