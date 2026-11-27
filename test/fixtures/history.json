@@ -1,0 +1,133 @@
+{
+  "referenceDate": "2026-11-27T18:00:00",
+  "contacts": [
+    {
+      "displayName": "Ammu",
+      "lookupKey": "contact-ammu",
+      "phones": ["+8801711999000"],
+      "emails": []
+    }
+  ],
+  "events": [
+    {
+      "source": "sms",
+      "title": "GP",
+      "body": "Recharge of Tk 499 successful. 30 GB, valid for 30 days.",
+      "occurredAt": "2026-07-31T10:00:00"
+    },
+    {
+      "source": "sms",
+      "title": "GP",
+      "body": "Recharge of Tk 499 successful. 30 GB, valid for 30 days.",
+      "occurredAt": "2026-08-30T10:15:00"
+    },
+    {
+      "source": "sms",
+      "title": "GP",
+      "body": "Recharge of Tk 499 successful. 30 GB, valid for 30 days.",
+      "occurredAt": "2026-09-29T09:50:00"
+    },
+    {
+      "source": "sms",
+      "title": "GP",
+      "body": "Recharge of Tk 499 successful. 30 GB, valid for 30 days.",
+      "occurredAt": "2026-10-29T10:05:00"
+    },
+    {
+      "source": "sms",
+      "title": "AmberIT",
+      "body": "Internet bill Tk 1,050 due 30/11/2026.",
+      "occurredAt": "2026-11-20T11:00:00"
+    },
+    {
+      "source": "notification",
+      "pkg": "com.daraz.android",
+      "title": "Gas Cylinder",
+      "body": "Order placed #GAS1024 for 12kg gas cylinder Tk 1,450",
+      "occurredAt": "2026-11-02T14:00:00"
+    },
+    {
+      "source": "sms",
+      "title": "bKash",
+      "body": "Send Money Tk 15,000.00 to 01799887766 successful. Balance Tk 22,500.00. TrxID AB12CD3401",
+      "occurredAt": "2026-06-05T11:00:00"
+    },
+    {
+      "source": "sms",
+      "title": "bKash",
+      "body": "Send Money Tk 15,000.00 to 01799887766 successful. Balance Tk 22,500.00. TrxID AB12CD3402",
+      "occurredAt": "2026-07-05T11:30:00"
+    },
+    {
+      "source": "sms",
+      "title": "bKash",
+      "body": "Send Money Tk 15,000.00 to 01799887766 successful. Balance Tk 22,500.00. TrxID AB12CD3403",
+      "occurredAt": "2026-08-05T10:45:00"
+    },
+    {
+      "source": "sms",
+      "title": "bKash",
+      "body": "Send Money Tk 15,000.00 to 01799887766 successful. Balance Tk 22,500.00. TrxID AB12CD3404",
+      "occurredAt": "2026-09-05T12:00:00"
+    },
+    {
+      "source": "sms",
+      "title": "bKash",
+      "body": "Send Money Tk 15,000.00 to 01799887766 successful. Balance Tk 22,500.00. TrxID AB12CD3405",
+      "occurredAt": "2026-10-05T11:10:00"
+    },
+    {
+      "source": "sms",
+      "title": "bKash",
+      "body": "Send Money Tk 15,000.00 to 01799887766 successful. Balance Tk 22,500.00. TrxID AB12CD3406",
+      "occurredAt": "2026-11-05T11:20:00"
+    },
+    {
+      "source": "call",
+      "category": "outgoing",
+      "title": "Ammu",
+      "body": "+8801711999000",
+      "occurredAt": "2026-10-16T20:45:00",
+      "endedAt": "2026-10-16T21:05:00",
+      "extras": { "number": "+8801711999000", "callType": "outgoing", "durationSec": 1200 }
+    },
+    {
+      "source": "call",
+      "category": "outgoing",
+      "title": "Ammu",
+      "body": "+8801711999000",
+      "occurredAt": "2026-10-23T21:00:00",
+      "endedAt": "2026-10-23T21:18:00",
+      "extras": { "number": "+8801711999000", "callType": "outgoing", "durationSec": 1080 }
+    },
+    {
+      "source": "call",
+      "category": "outgoing",
+      "title": "Ammu",
+      "body": "+8801711999000",
+      "occurredAt": "2026-11-06T21:10:00",
+      "endedAt": "2026-11-06T21:25:00",
+      "extras": { "number": "+8801711999000", "callType": "outgoing", "durationSec": 900 }
+    },
+    {
+      "source": "call",
+      "category": "outgoing",
+      "title": "Ammu",
+      "body": "+8801711999000",
+      "occurredAt": "2026-11-13T20:55:00",
+      "endedAt": "2026-11-13T21:10:00",
+      "extras": { "number": "+8801711999000", "callType": "outgoing", "durationSec": 900 }
+    },
+    {
+      "source": "call",
+      "category": "outgoing",
+      "title": "Ammu",
+      "body": "+8801711999000",
+      "occurredAt": "2026-11-20T21:15:00",
+      "endedAt": "2026-11-20T21:35:00",
+      "extras": { "number": "+8801711999000", "callType": "outgoing", "durationSec": 1200 }
+    }
+  ],
+  "noisyGroupDays": 30,
+  "noisyGroupMessagesPerDay": 60
+}

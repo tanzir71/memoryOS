@@ -101,3 +101,19 @@
 - `flutter analyze --no-fatal-infos`: 0 errors, 0 warnings.
 - `flutter test`: 55/55 tests passed (including full Reference Day and user action checks).
 - `flutter build apk --debug`: succeeded (`build/app/outputs/flutter-apk/app-debug.apk`).
+
+## M5: Pattern engine and feedback
+
+### Completed
+- Implemented `CycleMath` (`lib/engine/cycle_math.dart`): median/MAD consistency check (`d <= 0.2 * m`), monthly day-of-month anchor (range <= 2), weekly weekday anchor (>= 4 of last 6 weeks with average hour/minute), stated date/`valid_days`/`rrule`, guess from `assets/rules/priors.json`, and `expected`/`due`/`late`/`dormant` state transitions (1-day grace, dormant after 2 missed cycles).
+- Implemented `PatternEngine` (`lib/engine/pattern_engine.dart`): `rebuildAll` and incremental `updateForSignal` across `sms`, `chat`, `email`, `calendar`, `call`, and `order` families; 25% amount clustering; noisy-group `suggested_drop` detection; automatic `quiet` creation for newsletters; calendar overrun learning; and late-state open-loop creation (`"<Title>: usually done by now"`).
+- Implemented `FeedbackEngine` (`lib/engine/feedback_engine.dart`): `show`/`quiet`/`drop` decisions, per-counterpart and 2-drop kind-wide `suppress_rule`, ranked `New` proposal queue (max 4, money due -> people -> calendar -> email -> chat), implicit strength updates (`+1`/`+2`/`-1`, demotion to `quiet` below `-3` with notice), sticky user-set intervals (`setUserCycle`), and 90-day check-in tracking.
+- Added Reference History fixture (`test/fixtures/history.json`) and test suite (`test/pattern_engine_test.dart`).
+
+### Decisions
+- Checked learned 3+ event consistency before single-event `valid_days` so recurring operator recharges carrying `"valid for 30 days"` graduate to `learned` (`± 1 day`) once 3+ recharges are observed, matching Reference History item 1, while single SMS bills with explicit `due_date` remain `stated`.
+
+### Checks
+- `flutter analyze --no-fatal-infos`: 0 errors, 0 warnings.
+- `flutter test`: 58/58 tests passed (including all 6 Reference History predictions and 2-drop suppression).
+- `flutter build apk --debug`: succeeded (`build/app/outputs/flutter-apk/app-debug.apk`).
