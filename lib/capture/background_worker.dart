@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:workmanager/workmanager.dart';
 import '../data/database.dart';
-import 'inbox_drainer.dart';
+import 'history_importer.dart';
 
 const String drainInboxTaskName = 'com.memoryos.memoryos.drain_inbox';
 const String drainInboxUniqueName = 'memoryos_periodic_drain';
@@ -14,8 +14,12 @@ void memoryWorkmanagerDispatcher() {
     try {
       final db = await MemoryDatabase.openDefault();
       try {
-        final drainer = InboxDrainer(db: db);
-        await drainer.drainAll();
+        final coordinator = HistoryImportCoordinator(db: db);
+        if (task == historyImportTaskName) {
+          await coordinator.runFullHistoryImport();
+        } else {
+          await coordinator.runIncrementalPoll();
+        }
         await db.purgeExpiredDeleted();
       } finally {
         await db.close();

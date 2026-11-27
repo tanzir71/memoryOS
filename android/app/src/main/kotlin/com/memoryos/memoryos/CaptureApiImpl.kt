@@ -116,6 +116,7 @@ class CaptureApiImpl(private val context: Context) : CaptureHostApi {
             .putLong("capture_paused_until", epochMs)
             .putBoolean("listening_paused", paused)
             .apply()
+        StatusNotifier.refresh(context)
     }
 
     override fun getCapturePausedUntil(): Long {
@@ -131,46 +132,23 @@ class CaptureApiImpl(private val context: Context) : CaptureHostApi {
             .putInt("threads_today_count", threadsToday.toInt())
             .putInt("set_aside_today_count", setAsideToday.toInt())
             .apply()
+        StatusNotifier.refresh(context)
     }
 
     override fun importSmsInbox(afterEpochMs: Long): ImportProgress {
-        return ImportProgress(
-            source = "sms",
-            importedCount = 0L,
-            totalCount = 0L,
-            completed = true,
-            error = null,
-        )
+        return HistoryImporters.importSmsInbox(context, afterEpochMs)
     }
 
     override fun importCallLog(afterEpochMs: Long): ImportProgress {
-        return ImportProgress(
-            source = "call",
-            importedCount = 0L,
-            totalCount = 0L,
-            completed = true,
-            error = null,
-        )
+        return HistoryImporters.importCallLog(context, afterEpochMs)
     }
 
     override fun importContacts(): ImportProgress {
-        return ImportProgress(
-            source = "contacts",
-            importedCount = 0L,
-            totalCount = 0L,
-            completed = true,
-            error = null,
-        )
+        return HistoryImporters.importContacts(context)
     }
 
     override fun importCalendarInstances(fromEpochMs: Long, toEpochMs: Long): ImportProgress {
-        return ImportProgress(
-            source = "calendar",
-            importedCount = 0L,
-            totalCount = 0L,
-            completed = true,
-            error = null,
-        )
+        return HistoryImporters.importCalendarInstances(context, fromEpochMs, toEpochMs)
     }
 
     private fun hasPerm(permission: String): Boolean {

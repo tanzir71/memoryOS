@@ -44,3 +44,23 @@
 - `flutter analyze --no-fatal-infos`: 0 errors, 0 warnings.
 - `flutter test`: 32/32 tests passed (including Drift in-memory tests for all tables + FTS5, legacy migration test, and widget tests for every component).
 - `flutter build apk --debug`: succeeded (`build/app/outputs/flutter-apk/app-debug.apk`).
+
+## M2: Capture
+
+### Completed
+- Rewrote `NotificationListener.kt` to write full notification fields (`category`, `flags`, `importance` from `Ranking`, `sbn_key`, `group_key`, `is_conversation`, `is_group`, `EXTRA_MESSAGES`, `EXTRA_REMOTE_INPUT_HISTORY`, `EXTRA_TEXT_LINES`, `title`, `text`, `big_text`, `people_json`, `extras_json`, `posted_at`, `redacted`) into WAL `inbox.db` via `NotificationMapper.kt`, updating in place by `sbn.key` for non-conversations and recording removal reason/time in `onNotificationRemoved`.
+- Moved status notification (`StatusNotifier.kt` + `StatusActionReceiver`) and Bluetooth connect-to-disconnect interval recording into `NotificationListener.kt`.
+- Deleted `PersistentService.kt`, `DatabaseHelper.kt`, `ScreenshotObserver.kt`, and removed `flutter_background` from `pubspec.yaml` and `AndroidManifest.xml`.
+- Implemented `HistoryImporters.kt` for SMS inbox, call log, contacts, and calendar instances (30 days back to 30 days ahead with attendees and recurrence), wired behind `CaptureApiImpl.kt` and `HistoryImportCoordinator` + WorkManager.
+- Updated `AndroidManifest.xml`: added `READ_SMS`, `READ_CALL_LOG`, `READ_CONTACTS`; removed `WRITE_CALENDAR`, `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, `requestLegacyExternalStorage`, `BLUETOOTH_ADMIN`, `FOREGROUND_SERVICE*`, `WAKE_LOCK`, `IsolateHolderService`, and `PersistentService`.
+- Added `RestrictedSettingsBanner` and updated `SeesScreen` to guide sideloaded users through Android 13+/15+ "Allow restricted settings" with an "Open app info" button.
+- Implemented Dart dedupe & parser helpers (`lib/capture/capture_dedupe.dart`) for +880 phone normalisation, SMS vs notification dedupe, overlapping call-log vs call-notification dedupe, and tolerant chat/call parsers.
+
+### Decisions
+- Used pure-JVM JUnit 4 + `org.json` with `NotificationMapper.mapExtras` / `NotificationExtrasData` (with `NotificationMapper.fromBundle` adapting `android.os.Bundle`) so Kotlin JVM unit tests run fast without downloading a 170 MB Robolectric Android SDK image.
+
+### Checks
+- `flutter analyze --no-fatal-infos`: 0 errors, 0 warnings.
+- `flutter test`: 41/41 tests passed (including `test/capture_dedupe_test.dart`).
+- `./gradlew :app:testDebugUnitTest`: all 5 `NotificationMapperTest` tests passed.
+- `flutter build apk --debug`: succeeded (`build/app/outputs/flutter-apk/app-debug.apk`).
