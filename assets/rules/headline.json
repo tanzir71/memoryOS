@@ -1,0 +1,21 @@
+{
+  "single_templates": {
+    "ask_thread": "Open ask from {person} about {topic}.",
+    "meeting": "{title} on the calendar.",
+    "order": "{merchant} order and payment.",
+    "trip": "Trip with {merchant}."
+  },
+  "pair_templates": [
+    "{first}, then {second}.",
+    "{first} and {second}."
+  ],
+  "triple_template": "{first}, {second}, and {third}.",
+  "fragments": {
+    "ask_thread_morning": "A client morning",
+    "ask_thread_afternoon": "Follow-ups with {person}",
+    "ask_thread_generic": "{topic} with {person}",
+    "meeting": "a {title_lower}",
+    "order": "a {merchant} order",
+    "trip": "a {merchant} ride"
+  }
+}

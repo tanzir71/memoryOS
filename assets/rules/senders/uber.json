@@ -1,0 +1,14 @@
+{
+  "name": "uber",
+  "verified": false,
+  "match": {
+    "pkg": "com.ubercab",
+    "address": "(?i)uber"
+  },
+  "patterns": [
+    {
+      "kind": "trip",
+      "regex": "(?i)(?:trip|ride)\\s+(?:with|completed|receipt|total).*?(?:(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?))?"
+    }
+  ]
+}

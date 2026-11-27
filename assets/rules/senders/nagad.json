@@ -1,0 +1,26 @@
+{
+  "name": "nagad",
+  "verified": false,
+  "match": {
+    "pkg": "com.konasl.nagad",
+    "address": "(?i)nagad"
+  },
+  "patterns": [
+    {
+      "kind": "money_received",
+      "regex": "(?i)(?:Money Received|Received)\\s*(?:Amount:?\\s*)?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?).*?(?:Sender|From):?\\s*(?<counterparty>[\\w\\+\\-]+).*?(?:TxnID|TrxID):?\\s*(?<trx_id>[A-Z0-9]{8,12}).*?(?:Balance:?\\s*(?:Tk|BDT)\\s*(?<balance>[\\d,]+(?:\\.\\d{1,2})?))?"
+    },
+    {
+      "kind": "send_money",
+      "regex": "(?i)Send Money\\s*(?:Successful|to)?.*?(?:Amount:?\\s*)?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?).*?(?:Receiver|To):?\\s*(?<counterparty>[\\w\\+\\-]+).*?(?:TxnID|TrxID):?\\s*(?<trx_id>[A-Z0-9]{8,12})"
+    },
+    {
+      "kind": "payment",
+      "regex": "(?i)(?:Merchant\\s+)?Payment\\s*(?:Successful|of)?.*?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?).*?(?:Merchant|To):?\\s*(?<merchant>[A-Za-z0-9 &\\-]+?)(?:\\.|,|\\s+TxnID|\\s+TrxID|\\s+Balance|$)"
+    },
+    {
+      "kind": "utility_bill",
+      "regex": "(?i)Bill Pay(?:ment)?.*?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?).*?(?:Biller|To):?\\s*(?<merchant>[A-Za-z0-9 &\\-]+?)(?:\\.|,|\\s+TxnID|\\s+Balance|$)"
+    }
+  ]
+}

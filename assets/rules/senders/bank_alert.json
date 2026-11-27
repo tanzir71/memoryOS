@@ -1,0 +1,22 @@
+{
+  "name": "bank_alert",
+  "verified": false,
+  "match": {
+    "pkg": "",
+    "address": "(?i)(bank|brac|citybank|ebl|dbbl|dutch.?bangla|scb|mtb|primebank|ucb|islami)"
+  },
+  "patterns": [
+    {
+      "kind": "card_bill",
+      "regex": "(?i)(?:credit\\s+card|card\\s+statement|statement).*?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?).*?(?:due\\s+(?:date|by|on):?\\s*(?<due_date>\\d{1,2}[/\\-]\\d{1,2}[/\\-]\\d{2,4}|\\d{1,2}\\s+[A-Za-z]{3,9}(?:\\s+\\d{4})?))"
+    },
+    {
+      "kind": "payment",
+      "regex": "(?i)(?:debited|spent|purchase|charged)\\s+(?:with\\s+)?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?).*?(?:at|to)\\s+(?<merchant>[A-Za-z0-9 &\\-\\.]+?)(?:\\.|\\s+on|\\s+Bal|$)"
+    },
+    {
+      "kind": "money_received",
+      "regex": "(?i)(?:credited|deposited)\\s+(?:with\\s+)?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?).*?(?:Bal(?:ance)?:?\\s*(?:Tk|BDT)\\s*(?<balance>[\\d,]+(?:\\.\\d{1,2})?))?"
+    }
+  ]
+}

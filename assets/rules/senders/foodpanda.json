@@ -1,0 +1,18 @@
+{
+  "name": "foodpanda",
+  "verified": false,
+  "match": {
+    "pkg": "com.global.foodpanda.android",
+    "address": "(?i)foodpanda"
+  },
+  "patterns": [
+    {
+      "kind": "order_delivered",
+      "regex": "(?i)(?:order\\s+delivered|enjoy your meal|has been delivered)(?:.*?\\bfrom\\s+(?<merchant>[A-Za-z0-9 '&\\-]+?)(?=\\.|,|\\s+(?:Tk|BDT)|$))?"
+    },
+    {
+      "kind": "order_placed",
+      "regex": "(?i)(?:order\\s+(?:placed|confirmed|preparing)|preparing your order)(?:.*?\\bfrom\\s+(?<merchant>[A-Za-z0-9 '&\\-]+?)(?=\\.|,|\\s+(?:Tk|BDT)|$))?"
+    }
+  ]
+}

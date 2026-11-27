@@ -1,0 +1,18 @@
+{
+  "name": "utility_bill",
+  "verified": false,
+  "match": {
+    "pkg": "",
+    "address": "(?i)(desco|dpdc|wasa|titas|nesco|bpdb|amberit|link3|carnival|dotinternet|isp|internet|broadband|bill)"
+  },
+  "patterns": [
+    {
+      "kind": "internet_bill",
+      "regex": "(?i)(?:internet|broadband|wifi)\\s+bill.*?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?).*?due\\s*(?:date|by|on)?:?\\s*(?<due_date>\\d{1,2}[/\\-]\\d{1,2}[/\\-]\\d{2,4}|\\d{1,2}\\s+[A-Za-z]{3,9}(?:\\s+\\d{4})?)"
+    },
+    {
+      "kind": "utility_bill",
+      "regex": "(?i)(?:electricity|gas|water|utility|monthly)\\s+bill.*?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?).*?due\\s*(?:date|by|on)?:?\\s*(?<due_date>\\d{1,2}[/\\-]\\d{1,2}[/\\-]\\d{2,4}|\\d{1,2}\\s+[A-Za-z]{3,9}(?:\\s+\\d{4})?)"
+    }
+  ]
+}

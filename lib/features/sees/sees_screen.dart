@@ -6,6 +6,8 @@ import '../../app/providers.dart';
 import '../../app/tokens.dart';
 import '../../capture/capture_api.g.dart';
 import '../../capture/history_importer.dart';
+import '../../engine/rules_loader.dart';
+import '../../engine/unparsed_exporter.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/app_switch.dart';
 import '../../widgets/capture_pill.dart';
@@ -266,6 +268,27 @@ class _SeesScreenState extends ConsumerState<SeesScreen> {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('History import scheduled in background.'),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: AppSpace.s10),
+          AppButton(
+            label: 'Export unparsed samples',
+            variant: AppButtonVariant.quiet,
+            expand: true,
+            onPressed: () async {
+              final rules = await EngineRules.loadFromAssets();
+              final res = await exportUnparsedTransactionalSamples(
+                db: ref.read(databaseProvider),
+                rules: rules,
+              );
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Exported ${res.sampleCount} unparsed samples to ${res.filePath}',
+                  ),
                 ),
               );
             },

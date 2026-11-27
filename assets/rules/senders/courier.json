@@ -1,0 +1,18 @@
+{
+  "name": "courier",
+  "verified": false,
+  "match": {
+    "pkg": "",
+    "address": "(?i)(steadfast|redx|paperfly|ecourier|sundarban|courier|parcel|delivery)"
+  },
+  "patterns": [
+    {
+      "kind": "order_delivered",
+      "regex": "(?i)parcel\\s+(?:#|ID:?\\s*)?(?<tracking_no>[A-Z0-9\\-]{5,}).*?delivered"
+    },
+    {
+      "kind": "order_shipped",
+      "regex": "(?i)(?:parcel|shipment).*?(?:#|ID:?\\s*|tracking:?\\s*)(?<tracking_no>[A-Z0-9\\-]{5,}).*?(?:out for delivery|dispatched|picked up|in transit|arrives)"
+    }
+  ]
+}

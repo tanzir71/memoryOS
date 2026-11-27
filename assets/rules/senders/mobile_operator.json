@@ -1,0 +1,18 @@
+{
+  "name": "mobile_operator",
+  "verified": false,
+  "match": {
+    "pkg": "",
+    "address": "(?i)^(gp|grameenphone|robi|banglalink|airtel|teletalk|mygp|mybl|flexiload|recharge)$"
+  },
+  "patterns": [
+    {
+      "kind": "recharge",
+      "regex": "(?i)Recharge\\s+(?:of\\s+)?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?).*?(?:valid\\s+for\\s+(?<valid_days>\\d+)\\s+days?|valid\\s+(?:till|until)\\s+(?<valid_until>[\\d/\\-A-Za-z ]+))?"
+    },
+    {
+      "kind": "pack_expiry",
+      "regex": "(?i)(?:pack|bundle|internet|data|minute).*?(?:(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?))?.*?(?:valid\\s+for\\s+(?<valid_days>\\d+)\\s+days?|expires?\\s+on\\s+(?<valid_until>[\\d/\\-A-Za-z ]+)|valid\\s+(?:till|until)\\s+(?<valid_until>[\\d/\\-A-Za-z ]+))"
+    }
+  ]
+}

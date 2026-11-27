@@ -1,0 +1,61 @@
+[
+  {"id":"bkash_1","pkg":"","address":"bKash","title":"bKash","body":"You have received Tk 1,200.00 from 01711000001. Fee Tk 0.00. Balance Tk 1,200.00. TrxID DJC9SZQV0J at 12/10/2026 15:24","expectPack":"bkash","expectKind":"money_received","expectFields":{"amount":"1,200.00","trx_id":"DJC9SZQV0J","balance":"1,200.00"}},
+  {"id":"bkash_2","pkg":"","address":"bKash","title":"bKash","body":"Send Money Tk 15,000.00 to 01799887766 successful. Balance Tk 22,500.00. TrxID AB12CD34EF","expectPack":"bkash","expectKind":"send_money","expectFields":{"amount":"15,000.00","counterparty":"01799887766","trx_id":"AB12CD34EF"}},
+  {"id":"bkash_3","pkg":"com.bKash.customerapp","address":"bKash","title":"bKash","body":"Payment of Tk 1,250 to Daraz is successful. Fee Tk 0.00. TrxID XY99887766","expectPack":"bkash","expectKind":"payment","expectFields":{"amount":"1,250","merchant":"Daraz","trx_id":"XY99887766"}},
+  {"id":"bkash_4","pkg":"","address":"bKash","title":"bKash","body":"Cash Out Tk 5,000.00 from 01812345678 successful. Fee Tk 92.50. TrxID CO11223344","expectPack":"bkash","expectKind":"cash_out","expectFields":{"amount":"5,000.00","counterparty":"01812345678","trx_id":"CO11223344"}},
+  {"id":"bkash_5","pkg":"","address":"bKash","title":"bKash","body":"Mobile Recharge of Tk 200.00 to 01711223344 successful. TrxID RC55667788","expectPack":"bkash","expectKind":"recharge","expectFields":{"amount":"200.00","counterparty":"01711223344","trx_id":"RC55667788"}},
+
+  {"id":"nagad_1","pkg":"","address":"Nagad","title":"Nagad","body":"Money Received Amount: Tk 2,500.00 Sender: 01911000001 TxnID 71ABC23456 Balance: Tk 8,200.00","expectPack":"nagad","expectKind":"money_received","expectFields":{"amount":"2,500.00","counterparty":"01911000001","trx_id":"71ABC23456","balance":"8,200.00"}},
+  {"id":"nagad_2","pkg":"","address":"Nagad","title":"Nagad","body":"Send Money Successful Amount: Tk 1,000.00 Receiver: 01755443322 TxnID 72DEF98765 Balance: Tk 7,200.00","expectPack":"nagad","expectKind":"send_money","expectFields":{"amount":"1,000.00","counterparty":"01755443322","trx_id":"72DEF98765"}},
+  {"id":"nagad_3","pkg":"com.konasl.nagad","address":"Nagad","title":"Nagad","body":"Merchant Payment Successful Tk 850.00 Merchant: Shwapno TxnID 73GHI11223 Balance: Tk 6,350.00","expectPack":"nagad","expectKind":"payment","expectFields":{"amount":"850.00","merchant":"Shwapno"}},
+  {"id":"nagad_4","pkg":"","address":"Nagad","title":"Nagad","body":"Bill Pay Successful Tk 1,050.00 Biller: DESCO TxnID 74JKL44556 Balance: Tk 5,300.00","expectPack":"nagad","expectKind":"utility_bill","expectFields":{"amount":"1,050.00","merchant":"DESCO"}},
+  {"id":"nagad_5","pkg":"","address":"Nagad","title":"Nagad","body":"Payment of Tk 480 to Foodpanda. Balance: Tk 4,820.00","expectPack":"nagad","expectKind":"payment","expectFields":{"amount":"480","merchant":"Foodpanda"}},
+
+  {"id":"op_1","pkg":"","address":"GP","title":"GP","body":"Recharge of Tk 499 successful. 30 GB, valid for 30 days.","expectPack":"mobile_operator","expectKind":"recharge","expectFields":{"amount":"499","valid_days":"30"}},
+  {"id":"op_2","pkg":"","address":"Robi","title":"Robi","body":"Recharge Tk 399 successful. 25 GB data valid for 30 days.","expectPack":"mobile_operator","expectKind":"recharge","expectFields":{"amount":"399","valid_days":"30"}},
+  {"id":"op_3","pkg":"","address":"Banglalink","title":"Banglalink","body":"Recharge of Tk 198 successful, valid till 29/12/2026.","expectPack":"mobile_operator","expectKind":"recharge","expectFields":{"amount":"198"}},
+  {"id":"op_4","pkg":"","address":"Airtel","title":"Airtel","body":"Your 15 GB internet pack of Tk 299 is active and valid for 15 days.","expectPack":"mobile_operator","expectKind":"pack_expiry","expectFields":{"amount":"299","valid_days":"15"}},
+  {"id":"op_5","pkg":"","address":"GP","title":"GP","body":"Your 30 GB data pack expires on 28/11/2026.","expectPack":"mobile_operator","expectKind":"pack_expiry","expectFields":{"valid_until":"28/11/2026"}},
+
+  {"id":"bank_1","pkg":"","address":"BRACBANK","title":"BRACBANK","body":"Credit card statement Tk 14,500.00 due date: 05/12/2026.","expectPack":"bank_alert","expectKind":"card_bill","expectFields":{"amount":"14,500.00","due_date":"05/12/2026"}},
+  {"id":"bank_2","pkg":"","address":"CITYBANK","title":"CITYBANK","body":"Card debited with Tk 2,300.00 at Unimart on 27/11/2026.","expectPack":"bank_alert","expectKind":"payment","expectFields":{"amount":"2,300.00","merchant":"Unimart"}},
+  {"id":"bank_3","pkg":"","address":"EBL","title":"EBL","body":"Your A/C credited with Tk 85,000.00. Bal: Tk 142,000.00","expectPack":"bank_alert","expectKind":"money_received","expectFields":{"amount":"85,000.00","balance":"142,000.00"}},
+  {"id":"bank_4","pkg":"","address":"DBBL","title":"DBBL","body":"Purchase Tk 950.00 at Aarong. Bal Tk 18,400.00","expectPack":"bank_alert","expectKind":"payment","expectFields":{"amount":"950.00","merchant":"Aarong"}},
+  {"id":"bank_5","pkg":"","address":"SCB","title":"SCB","body":"Your credit card statement is BDT 9,200.00 due by 15 Dec 2026.","expectPack":"bank_alert","expectKind":"card_bill","expectFields":{"amount":"9,200.00","due_date":"15 Dec 2026"}},
+
+  {"id":"util_1","pkg":"","address":"AmberIT","title":"AmberIT","body":"Internet bill Tk 1,050 due 30/11/2026.","expectPack":"utility_bill","expectKind":"internet_bill","expectFields":{"amount":"1,050","due_date":"30/11/2026"}},
+  {"id":"util_2","pkg":"","address":"Link3","title":"Link3","body":"Your broadband bill of Tk 1,200 is due by 05/12/2026.","expectPack":"utility_bill","expectKind":"internet_bill","expectFields":{"amount":"1,200","due_date":"05/12/2026"}},
+  {"id":"util_3","pkg":"","address":"DESCO","title":"DESCO","body":"Electricity bill Tk 3,150.00 due date 10/12/2026.","expectPack":"utility_bill","expectKind":"utility_bill","expectFields":{"amount":"3,150.00","due_date":"10/12/2026"}},
+  {"id":"util_4","pkg":"","address":"WASA","title":"WASA","body":"Water bill Tk 820 due on 20/12/2026.","expectPack":"utility_bill","expectKind":"utility_bill","expectFields":{"amount":"820","due_date":"20/12/2026"}},
+  {"id":"util_5","pkg":"","address":"TITAS","title":"TITAS","body":"Gas bill Tk 1,080 due 30 Nov.","expectPack":"utility_bill","expectKind":"utility_bill","expectFields":{"amount":"1,080","due_date":"30 Nov"}},
+
+  {"id":"daraz_1","pkg":"com.daraz.android","address":"Daraz","title":"Daraz","body":"Order placed #DZ99210 for USB-C charger Tk 1,250","expectPack":"daraz","expectKind":"order_placed","expectFields":{"order_id":"DZ99210","item":"USB-C charger","amount":"1,250"}},
+  {"id":"daraz_2","pkg":"com.daraz.android","address":"Daraz","title":"Daraz","body":"Order confirmed ID: DZ88123 for Mechanical Keyboard Tk 4,500","expectPack":"daraz","expectKind":"order_placed","expectFields":{"order_id":"DZ88123","amount":"4,500"}},
+  {"id":"daraz_3","pkg":"com.daraz.android","address":"Daraz","title":"Daraz","body":"Your order #DZ99210 has shipped! Tracking No: DX7712345","expectPack":"daraz","expectKind":"order_shipped","expectFields":{"order_id":"DZ99210","tracking_no":"DX7712345"}},
+  {"id":"daraz_4","pkg":"com.daraz.android","address":"Daraz","title":"Daraz","body":"Order #DZ99210 is out for delivery today.","expectPack":"daraz","expectKind":"order_shipped","expectFields":{"order_id":"DZ99210"}},
+  {"id":"daraz_5","pkg":"com.daraz.android","address":"Daraz","title":"Daraz","body":"Your order #DZ99210 has been delivered.","expectPack":"daraz","expectKind":"order_delivered","expectFields":{"order_id":"DZ99210"}},
+
+  {"id":"fp_1","pkg":"com.global.foodpanda.android","address":"Foodpanda","title":"Foodpanda","body":"Order placed from Kacchi Bhai Tk 480","expectPack":"foodpanda","expectKind":"order_placed","expectFields":{"merchant":"Kacchi Bhai","amount":"480"}},
+  {"id":"fp_2","pkg":"com.global.foodpanda.android","address":"Foodpanda","title":"Foodpanda","body":"Order delivered from Kacchi Bhai Tk 480","expectPack":"foodpanda","expectKind":"order_delivered","expectFields":{"merchant":"Kacchi Bhai","amount":"480"}},
+  {"id":"fp_3","pkg":"com.global.foodpanda.android","address":"Foodpanda","title":"Foodpanda","body":"Preparing your order from Chillox Tk 620","expectPack":"foodpanda","expectKind":"order_placed","expectFields":{"merchant":"Chillox","amount":"620"}},
+  {"id":"fp_4","pkg":"com.global.foodpanda.android","address":"Foodpanda","title":"Foodpanda","body":"Order confirmed from Sultan's Dine Tk 950","expectPack":"foodpanda","expectKind":"order_placed","expectFields":{"merchant":"Sultan's Dine","amount":"950"}},
+  {"id":"fp_5","pkg":"com.global.foodpanda.android","address":"Foodpanda","title":"Foodpanda","body":"Enjoy your meal! Order has been delivered from North End Tk 340","expectPack":"foodpanda","expectKind":"order_delivered","expectFields":{"amount":"340"}},
+
+  {"id":"pathao_1","pkg":"com.pathao.user","address":"Pathao","title":"Pathao","body":"Ride completed. Total Tk 180.","expectPack":"pathao","expectKind":"trip","expectFields":{"amount":"180","merchant":"Pathao"}},
+  {"id":"pathao_2","pkg":"com.pathao.user","address":"Pathao","title":"Pathao","body":"Trip receipt: Tk 245 paid.","expectPack":"pathao","expectKind":"trip","expectFields":{"amount":"245","merchant":"Pathao"}},
+  {"id":"pathao_3","pkg":"com.pathao.user","address":"Pathao","title":"Pathao","body":"Ride ended. Fare Tk 120.","expectPack":"pathao","expectKind":"trip","expectFields":{"amount":"120"}},
+  {"id":"pathao_4","pkg":"com.pathao.user","address":"Pathao","title":"Pathao","body":"Parcel delivered #PTH88321.","expectPack":"pathao","expectKind":"order_delivered","expectFields":{"tracking_no":"PTH88321"}},
+  {"id":"pathao_5","pkg":"com.pathao.user","address":"Pathao","title":"Pathao","body":"Food delivered ID: PF99102.","expectPack":"pathao","expectKind":"order_delivered","expectFields":{"tracking_no":"PF99102"}},
+
+  {"id":"uber_1","pkg":"com.ubercab","address":"Uber","title":"Uber","body":"Trip completed. Total Tk 320.","expectPack":"uber","expectKind":"trip","expectFields":{"amount":"320","merchant":"Uber"}},
+  {"id":"uber_2","pkg":"com.ubercab","address":"Uber","title":"Uber","body":"Your trip receipt: BDT 540.","expectPack":"uber","expectKind":"trip","expectFields":{"amount":"540"}},
+  {"id":"uber_3","pkg":"com.ubercab","address":"Uber","title":"Uber","body":"Ride with Karim completed Tk 210","expectPack":"uber","expectKind":"trip","expectFields":{"amount":"210"}},
+  {"id":"uber_4","pkg":"com.ubercab","address":"Uber","title":"Uber","body":"Trip total Tk 415.00","expectPack":"uber","expectKind":"trip","expectFields":{"amount":"415.00"}},
+  {"id":"uber_5","pkg":"com.ubercab","address":"Uber","title":"Uber","body":"Ride receipt Tk 190","expectPack":"uber","expectKind":"trip","expectFields":{"amount":"190"}},
+
+  {"id":"courier_1","pkg":"","address":"RedX","title":"RedX","body":"Your parcel #RX88210 is out for delivery today.","expectPack":"courier","expectKind":"order_shipped","expectFields":{"tracking_no":"RX88210"}},
+  {"id":"courier_2","pkg":"","address":"Steadfast","title":"Steadfast","body":"Parcel #SF55432 has been delivered. Collected Tk 1,250.","expectPack":"courier","expectKind":"order_delivered","expectFields":{"tracking_no":"SF55432","amount":"1,250"}},
+  {"id":"courier_3","pkg":"","address":"Paperfly","title":"Paperfly","body":"Shipment tracking: PF776655 dispatched from Dhaka hub.","expectPack":"courier","expectKind":"order_shipped","expectFields":{"tracking_no":"PF776655"}},
+  {"id":"courier_4","pkg":"","address":"eCourier","title":"eCourier","body":"Parcel ID: EC112233 picked up by rider.","expectPack":"courier","expectKind":"order_shipped","expectFields":{"tracking_no":"EC112233"}},
+  {"id":"courier_5","pkg":"","address":"Sundarban","title":"Sundarban","body":"Parcel #SB99001 delivered successfully.","expectPack":"courier","expectKind":"order_delivered","expectFields":{"tracking_no":"SB99001"}}
+]

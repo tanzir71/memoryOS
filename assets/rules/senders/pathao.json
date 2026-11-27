@@ -1,0 +1,18 @@
+{
+  "name": "pathao",
+  "verified": false,
+  "match": {
+    "pkg": "com.pathao.user",
+    "address": "(?i)pathao"
+  },
+  "patterns": [
+    {
+      "kind": "trip",
+      "regex": "(?i)(?:ride|trip)\\s+(?:completed|ended|finished|receipt)"
+    },
+    {
+      "kind": "order_delivered",
+      "regex": "(?i)(?:parcel|food)\\s+delivered(?:\\s+(?:#|ID:?\\s*)(?<tracking_no>[A-Z0-9\\-]{5,}))?"
+    }
+  ]
+}

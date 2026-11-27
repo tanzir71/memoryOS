@@ -1,0 +1,22 @@
+{
+  "name": "daraz",
+  "verified": false,
+  "match": {
+    "pkg": "com.daraz.android",
+    "address": "(?i)daraz"
+  },
+  "patterns": [
+    {
+      "kind": "order_placed",
+      "regex": "(?i)Order\\s+(?:placed|confirmed)(?:.*?(?:#|ID:?\\s*)(?<order_id>[A-Z0-9\\-]{5,}))?(?:.*?\\bfor\\s+\"?(?<item>[A-Za-z0-9 \\-]+?)\"?(?=\\.|,|\\s+(?:Tk|BDT)|$))?"
+    },
+    {
+      "kind": "order_shipped",
+      "regex": "(?i)(?:shipped|on the way|out for delivery)"
+    },
+    {
+      "kind": "order_delivered",
+      "regex": "(?i)delivered"
+    }
+  ]
+}

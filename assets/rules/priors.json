@@ -1,0 +1,13 @@
+{
+  "priors": {
+    "recharge": { "days": 30, "label": "Monthly mobile recharge" },
+    "pack_expiry": { "days": 30, "label": "Data pack renewal" },
+    "utility_bill": { "days": 30, "monthly": true, "label": "Monthly utility bill" },
+    "internet_bill": { "days": 30, "monthly": true, "label": "Monthly internet bill" },
+    "rent": { "days": 30, "monthly": true, "label": "Monthly rent" },
+    "card_bill": { "days": 30, "monthly": true, "label": "Monthly card bill" },
+    "subscription": { "days": 30, "monthly": true, "label": "Monthly subscription" },
+    "gas_cylinder": { "days": 30, "label": "Gas cylinder reorder" },
+    "grocery_reorder": { "days": 7, "label": "Weekly grocery order" }
+  }
+}

@@ -64,3 +64,22 @@
 - `flutter test`: 41/41 tests passed (including `test/capture_dedupe_test.dart`).
 - `./gradlew :app:testDebugUnitTest`: all 5 `NotificationMapperTest` tests passed.
 - `flutter build apk --debug`: succeeded (`build/app/outputs/flutter-apk/app-debug.apk`).
+
+## M3: Understand
+
+### Completed
+- Created JSON rule packs in `assets/rules/` (`apps.json`, `intents.json`, `priors.json`, `headline.json`) and 10 sender packs under `assets/rules/senders/` (`bkash`, `nagad`, `mobile_operator`, `bank_alert`, `utility_bill`, `daraz`, `foodpanda`, `pathao`, `uber`, `courier`), all marked `"verified": false`.
+- Implemented `TriageEngine` (`lib/engine/triage.dart`) covering all 11 classes, OTP/redacted redaction ("sensitive event from <app> at <time>" with empty body), group-summary/low-importance/progress-tick/promo/media/system set-aside rules, per-(package, channel) score updates, and user `app_rule` override precedence.
+- Implemented `PersonMatcher` (`lib/engine/person_matcher.dart`) following exact match priority (phone -> chat name -> email sender name -> email address), provisional creation and merge into contacts, and never merging two contacts automatically.
+- Implemented `ExtractionEngine` (`lib/engine/extractor.dart`) with sender packs, named group extraction, entity normalisation, generic money/date/validity/order/tracking/trx/balance fallbacks, and `exportUnparsedTransactionalSamples` (`lib/engine/unparsed_exporter.dart`, wired into `SeesScreen`).
+- Implemented `IntentDetector` (`lib/engine/intent_detector.dart`) across English, Bangla, and Banglish with 0.9 / 0.7 / 0.4 confidence tiers and due-date resolution.
+- Added 66 triage fixtures (`test/fixtures/triage/triage_fixtures.json`), 50 extract fixtures (5 per sender pack, `test/fixtures/extract/extract_fixtures.json`), and 36 intent fixtures (12 EN, 12 Banglish, 12 Bangla, `test/fixtures/intent/intent_fixtures.json`).
+
+### Decisions
+- Added a `_compileRegex` helper in `EngineRules` that converts leading `(?i)` in JSON rule packs to Dart's `caseSensitive: false` flag so packs remain portable regex strings.
+- Required at least one digit inside generic `order_id` / `tracking_no` fallbacks so plain words like `"delivered"` after `"Parcel"` are never misread as tracking IDs.
+
+### Checks
+- `flutter analyze --no-fatal-infos`: 0 errors, 0 warnings.
+- `flutter test`: 52/52 tests passed (all 152+ fixtures green).
+- `flutter build apk --debug`: succeeded (`build/app/outputs/flutter-apk/app-debug.apk`).

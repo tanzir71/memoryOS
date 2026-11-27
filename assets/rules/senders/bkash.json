@@ -1,0 +1,30 @@
+{
+  "name": "bkash",
+  "verified": false,
+  "match": {
+    "pkg": "com.bKash.customerapp",
+    "address": "(?i)bkash"
+  },
+  "patterns": [
+    {
+      "kind": "money_received",
+      "regex": "(?i)received\\s+(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s+from\\s+(?<counterparty>[\\w\\+\\-\\. ]+?)(?:\\.|\\s+Fee).*?(?:Balance\\s+(?:Tk|BDT)\\s*(?<balance>[\\d,]+(?:\\.\\d{1,2})?))?.*?(?:TrxID\\s+(?<trx_id>[A-Z0-9]{8,12}))?"
+    },
+    {
+      "kind": "send_money",
+      "regex": "(?i)Send Money\\s+(?:of\\s+)?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s+to\\s+(?<counterparty>[\\w\\+\\-]+).*?(?:Balance\\s+(?:Tk|BDT)\\s*(?<balance>[\\d,]+(?:\\.\\d{1,2})?))?.*?(?:TrxID\\s+(?<trx_id>[A-Z0-9]{8,12}))?"
+    },
+    {
+      "kind": "payment",
+      "regex": "(?i)(?:Payment|Paid)\\s+(?:of\\s+)?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s+to\\s+(?<merchant>[A-Za-z0-9 &\\-]+?)(?:\\s+is\\s+successful|\\.|\\s+Fee|\\s+TrxID).*?(?:TrxID\\s+(?<trx_id>[A-Z0-9]{8,12}))?"
+    },
+    {
+      "kind": "cash_out",
+      "regex": "(?i)Cash Out\\s+(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s+from\\s+(?<counterparty>[\\w\\+\\-]+).*?(?:TrxID\\s+(?<trx_id>[A-Z0-9]{8,12}))?"
+    },
+    {
+      "kind": "recharge",
+      "regex": "(?i)Mobile Recharge\\s+(?:of\\s+)?(?:Tk|BDT)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?)\\s+to\\s+(?<counterparty>[\\w\\+\\-]+).*?(?:TrxID\\s+(?<trx_id>[A-Z0-9]{8,12}))?"
+    }
+  ]
+}
