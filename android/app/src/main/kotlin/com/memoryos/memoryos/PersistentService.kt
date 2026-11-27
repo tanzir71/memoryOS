@@ -121,7 +121,8 @@ class PersistentService : Service() {
                 .setContentTitle(if (isPaused) "MemoryOS is paused" else "MemoryOS is listening")
                 .setContentText(statusText(sharedPref))
                 .setSubText(activeCollectors(sharedPref))
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(if (isPaused) R.drawable.ic_stat_memoryos_paused else R.drawable.ic_stat_memoryos)
+                .setColor(0xFF45398A.toInt())
                 .setContentIntent(pendingIntent)
                 .addAction(
                     if (isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,

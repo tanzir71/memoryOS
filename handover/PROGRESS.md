@@ -23,3 +23,24 @@
 - `flutter analyze --no-fatal-infos`: 0 errors, 0 warnings.
 - `flutter test`: 21/21 tests passed.
 - `flutter build apk --debug`: succeeded (`build/app/outputs/flutter-apk/app-debug.apk`).
+
+## M1: Foundation
+
+### Completed
+- Added packages: `flutter_riverpod 3.5.0`, `go_router 18.1.4`, `drift 2.35.4`, `sqlite3 3.9.2`, `workmanager 0.10.10`, `lucide_icons_flutter 4.0.5`, `drift_dev 2.35.3`, `build_runner 2.17.1`, `pigeon 30.0.4`. Removed `cupertino_icons` and `sqflite`.
+- Bundled `Newsreader` and `Instrument Sans` variable TTF fonts in `assets/fonts/` so no network font fetch occurs.
+- Built design tokens (`lib/app/tokens.dart`), theme (`lib/app/theme.dart`), and all shared components in `lib/widgets/` (`Glyph`, `IntentTag`, `CertaintyTag`, `DecisionControl`, `AppButton`, `CapturePill`, `AppSwitch`, `MemoryNavBar`, `RailEntry`, `SectionHeader`), each with widget tests (`test/widgets_test.dart`).
+- Created Drift `memory.db` schema (`lib/data/tables_core.dart`, `lib/data/tables_engine.dart`, `lib/data/database.dart`) with all tables, unique constraints, indexes, and FTS5 `search_index`, plus legacy `memoryos.db` migration and rename (`lib/data/legacy_migration.dart`).
+- Added Kotlin `inbox.db` with WAL (`InboxDatabase.kt`), Pigeon schema (`pigeons/capture_api.dart`) and host implementation (`CaptureApiImpl.kt`), Dart inbox drainer (`lib/capture/inbox_drainer.dart`), and 15-minute WorkManager drain (`lib/capture/background_worker.dart`).
+- Built new 4-tab shell (`Today`, `Threads`, `People`, `Ahead`) via `go_router` + `Riverpod`.
+- Added vector notification icons (`ic_stat_memoryos.xml`, `ic_stat_memoryos_paused.xml`) and adaptive launcher icon (`mipmap-anydpi-v26/ic_launcher.xml`).
+
+### Decisions
+- Used `sqlite3 3.9.2` native hooks directly (removed EOL `sqlite3_flutter_libs 0.6.0+eol`) and read legacy `memoryos.db` directly via `sqlite3` so `sqflite` could be removed cleanly in M1.
+- Added a `channel_score` table alongside `app_rule` to track per-(package, channel) triage scores cleanly.
+- Used `package:flutter/material.dart` (deprecated info in Flutter 3.50.1) because `go_router` and Material widgets still rely on it; zero errors and zero warnings.
+
+### Checks
+- `flutter analyze --no-fatal-infos`: 0 errors, 0 warnings.
+- `flutter test`: 32/32 tests passed (including Drift in-memory tests for all tables + FTS5, legacy migration test, and widget tests for every component).
+- `flutter build apk --debug`: succeeded (`build/app/outputs/flutter-apk/app-debug.apk`).
